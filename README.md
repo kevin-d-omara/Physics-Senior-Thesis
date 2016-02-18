@@ -3,4 +3,4 @@ Improved Numerical Projection of Angular Momentum
 
 By Dr. Calvin W. Johnson
 
-New method being implemented by Kevin D. O'Mara
+New formalism implemented by Kevin D. O'Mara
