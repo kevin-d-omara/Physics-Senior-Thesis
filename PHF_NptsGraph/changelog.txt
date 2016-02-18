@@ -1,9 +1,0 @@
-### Purpose: re-order main loop to speeding up PHF (i.e. optimizing).
-
-:: Jagged Array ::
-	- re-order main loop for the purpose of speeding up PHF (i.e. optimizing)
-	- ^ move J to innermost loop
-
-
-
-### -> sub: NptsGraph -> print to file

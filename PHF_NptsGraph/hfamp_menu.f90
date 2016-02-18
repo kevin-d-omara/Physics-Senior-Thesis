@@ -675,9 +675,7 @@ INTEGER :: i,iostatus
 CHARACTER (LEN = 1) :: choice
 CHARACTER (LEN = 4) :: shell
 CHARACTER (LEN = 26) :: name
-CHARACTER (LEN = 100) :: filename, nptsName, tempName!, path
-
-!path = '/home/Jtstaker/Desktop/JohnsonResearch/ProjectedData/'//TRIM(shell)//'_data/'
+CHARACTER (LEN = 100) :: filename, nptsName, tempName, oddName!, path
 
 1000 FORMAT(I3,4(G15.8))
 
@@ -693,27 +691,6 @@ DO
 		WRITE(*,*) 'Y or N please.'
 	ENDIF
 END DO
-
-!IF (path.EQ."undefined") THEN
-!	WRITE(*,*) "Enter file path (i.e. ~/Desktop/path/)"
-!	READ (*,'(a)') path
-	!path = "'"//TRIM(path)//"'"
-	!ELSE
-	!WRITE(*,*) "Current path OK? (Y or N): ",path
-	!DO
-	!	READ(*,*) choice
-	!	IF ((choice == 'y').OR.(choice == 'Y')) THEN
-	!		EXIT
-	!	ELSEIF ((choice == 'n').OR.(choice == 'N')) THEN
-	!		WRITE(*,*) "Enter new path: "
-	!		READ(*,'(a)') path
-	!		path = TRIM(path)
-	!		EXIT
-	!	ELSE
-	!		WRITE(*,*) 'Y or N please.'
-	!	ENDIF
-	!END DO
-	!END IF
 
 DO
 	WRITE(*,*) 'Enter file name (without extention -- .dat added): '
@@ -801,9 +778,32 @@ WRITE(*,*) 'Data written to:',filename
 do jj = int(jmin), int(jmax)
     write(tempName,*) int(jj)
     if (isOdd) write(tempName,*) trim(adjustl(tempName)) // '.5'
-    tempName = trim(adjustl(nptsName)) // '_' // trim(adjustl(tempName)) // '.dat'
-    open(unit=101,file=trim(adjustl(tempName)),status='old',position='append')
-    write(101,*) npts, problist(1,jj+1)
+
+    if (parityflag) then
+        oddName = trim(adjustl(nptsName)) // '_' // trim(adjustl(tempName)) // '_-.dat'
+        tempName = trim(adjustl(nptsName)) // '_' // trim(adjustl(tempName)) // '_+.dat'
+    else
+        tempName = trim(adjustl(nptsName)) // '_' // trim(adjustl(tempName)) // '.dat'
+    end if
+
+    open(unit=101,file=trim(adjustl(tempName)),status='new',iostat=iostatus)
+    if (iostatus > 0) then
+        open(unit=101,file=trim(adjustl(tempName)),status='old',position='append')
+    end if
+    if (parityflag) then
+        open(unit=102,file=trim(adjustl(oddName)),status='new',iostat=iostatus)
+        if (iostatus > 0) then
+            open(unit=102,file=trim(adjustl(oddName)),status='old',position='append')
+        end if
+    end if
+
+    if (parityflag) then
+        write(101,*) npts, problist(1,jj+1)
+        write(102,*) npts, problist(2,jj+1)
+        close(102)
+    else
+        write(101,*) npts, problist(1,jj+1)
+    end if
     close(101)
 end do
 
