@@ -1,6 +1,8 @@
 ! ///////////////// VERSION CONTROL /////////////////
 !	
-! Latest Version 1.1.7
+! Latest Version 1.1.7.1
+!
+! note: this document was written with a tab width of 4 spaces
 !
 !	Changelog
 !   1.0.0   10/02/15    : finalized paper outline of easyProjection, began implementation
@@ -55,14 +57,12 @@
 !   1.1.7   12/03/15    : fixed issue with improper parity trace values
 !                           - was adding parity term after trace calculations: <|> +- <Psi|RP|Psi>
 !                           - removed printTrace and addToTrace subroutines
+!	1.1.7.1	03/11/16	: quick patch -> sum of Hamiltonian no longer reports sum of Norm
 !
 !  POTENTIAL PROBLEMS:
 !    - wigner_d function -> M, K possibly flipped
 !    - subroutine extractPiecemealElements & mirrorSolution not heavily tested
 !    - all work for extracting eigenvalues is spread thin (i.e. little testing, little understanding b.c. I'm borrowing from J. Staker)
-!
-!  TODO:
-!    - update easyProjection pdf to latest version (in email from Dr. Johnson)
 !
 ! /////////////////// BLUEPRINTS ////////////////////
 !

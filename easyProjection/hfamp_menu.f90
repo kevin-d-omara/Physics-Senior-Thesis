@@ -716,7 +716,7 @@ if(parityflag)then
 	write(10,*)'-----------------------'
 	do i = 1,nlist
 		write(10,2002)jlist(i),hamlist(1,i),hamlist(2,i)
-		hamsum = hamsum+problist(1,i)+problist(2,i)
+		hamsum = hamsum+hamlist(1,i)+hamlist(2,i)
 	end do
 	2002 format(f4.1,2(1X,f10.6))
 else
@@ -724,7 +724,7 @@ else
 	write(10,*)'-----------------------'
 	do i = 1,nlist
 		write(10,2002)jlist(i),hamlist(1,i)
-		hamsum = hamsum+problist(1,i)
+		hamsum = hamsum+hamlist(1,i)
 	end do
 end if
 write(10,*)' Total of sum of trace(H) = ',hamSum
