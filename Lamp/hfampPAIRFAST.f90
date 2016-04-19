@@ -10,11 +10,11 @@
 ! Main integration routine
 !
 !    alp, bet, gam - indicies for quadrature integration
-!    JFUNK - User defined angular momentum (coupled - integer (or half-integer) value)
-!    np - dimension of generated H and N matrixes (np = 2*floatJ + 1)
+!    js - User defined angular momentum (coupled - integer (or half-integer) value)
+!    np - dimension of generated H and N matrixes (np = 2*js + 1)
 !    mm, mp - indices for generated matrix
 !    hmm, hmp - actual values of m', m for wignerD matrix generation
-!    uw - Generated WignerD matrix from user JFUNK
+!    uw - Generated WignerD matrix from user js
 !
 !    jerkap, jerkbp, jerkgp - values to store integration
 !        producing H matrix (Dimension np X np)
@@ -40,14 +40,14 @@
 !
 
 
-SUBROUTINE Projection_with_Parity(jmin, jmax, isOdd, psd, nsd, tol,npts, nf, pevals,posdef,ParTest,ntrace)
+SUBROUTINE Projection_with_Parity(js,np,psd,nsd,tol,ParityTest,alpha_i,beta_j, &
+        gamma_k,N_ijk,H_ijk,PN_ijk,PH_ijk,allOvlpp,allOvlpn,allRhopij,allRhonij,isNorm)
 
 USE phf_vals
 USE system_parameters
 USE spstate
 USE psis
 USE errortests
-USE jaggedArrayType
 
 IMPLICIT NONE
 
@@ -61,10 +61,10 @@ interface
       end subroutine Psi_New  ! INTERFACE
 	  
 
-	  SUBROUTINE Wigner_d2(JFUNK,np,alpha,beta,gamma,wignerD)  ! INTERFACE
+	  SUBROUTINE Wigner_d2(js,np,alpha,beta,gamma,wignerD)  ! INTERFACE
 	  IMPLICIT NONE
 	  INTEGER, INTENT(IN) :: np
-	  REAL (KIND = 8), INTENT(IN) :: JFUNK, alpha,beta,gamma
+	  REAL (KIND = 8), INTENT(IN) :: js, alpha,beta,gamma
 	  COMPLEX (KIND = 8), DIMENSION(1:np,1:np), INTENT(OUT) :: wignerD
       end subroutine Wigner_d2    ! INTERFACE
 	  
@@ -94,16 +94,13 @@ interface
 		
 end interface
 
-logical, intnet(in) :: isOdd
-integer (kind = 8) :: intJ
-real (kind = 8), intnet(in) :: jmin, jmax
-real (kind = 8) :: floatJ
-INTEGER (KIND = 8) :: np
+INTEGER (KIND = 8), INTENT(IN) :: np
+REAL (KIND = 8), INTENT(IN) :: js
 COMPLEX (KIND = 8), INTENT(IN) :: psd(numsd,nsps,numprot), nsd(numsd,nsps,numneut)
-LOGICAL, INTENT(IN) :: ParTest
-LOGICAL, INTENT(INOUT) :: posdef(2)
-INTEGER (KIND = 8), INTENT(OUT) :: nf
-REAL (KIND = 8), INTENT(OUT) :: pevals(npair,numsd*np)
+LOGICAL, INTENT(IN) :: ParityTest
+LOGICAL :: posdef(2)
+INTEGER (KIND = 8) :: nf
+REAL (KIND = 8) :: pevals(npair,numsd*np)
 real (kind=8) :: normvals(npair,numsd*np)
 real (kind=8) :: ntrace(2)
 
@@ -114,29 +111,24 @@ INTEGER, ALLOCATABLE, DIMENSION(:) :: skip
 REAL :: tol
 REAL (KIND = 8) :: a,b,hmp,hm,lam,pi,dx
 REAL (KIND = 8), ALLOCATABLE, DIMENSION(:) :: xleg,wleg,xlegb,wlegb
-!REAL (KIND = 8), ALLOCATABLE, DIMENSION(:,:,:) :: xjac,wjac
+REAL (KIND = 8), ALLOCATABLE, DIMENSION(:,:,:) :: xjac,wjac
 COMPLEX (KIND = 8) :: uw,jerkap,jerkapn,jerkbp,jerkbpn,jerkgp,jerkgpn,ic
+COMPLEX (KIND = 8), ALLOCATABLE, DIMENSION(:,:) :: phfA, phfB, phfG, NphfA, NphfB, NphfG
 COMPLEX (KIND = 8) :: Pjerkap,Pjerkapn,Pjerkbp,Pjerkbpn,Pjerkgp,Pjerkgpn
-
-type (jaggedArray), dimension(int(jmin):int(jmax)) :: phfA, phfB, phfG, NphfA, NphfB, NphfG
-type (jaggedArray), dimension(int(jmin):int(jmax)) :: PphfA, PphfB, PphfG, PNphfA, PNphfB, PNphfG
-
+COMPLEX (KIND = 8), ALLOCATABLE, DIMENSION(:,:) :: PphfA, PphfB, PphfG, PNphfA, PNphfB, PNphfG
+COMPLEX (KIND = 8), ALLOCATABLE, DIMENSION(:,:) :: IntWig
 COMPLEX (KIND = 8), ALLOCATABLE, DIMENSION(:,:) :: RotMat, L, Linv,RotTesta,RotTestb,RotTestg
 LOGICAL :: invFlag = .true.
 PARAMETER(pi = 2.0d0*DASIN(1.0d0))
 integer :: i,it,k,jtt
 
 COMPLEX (KIND = 8),ALLOCATABLE :: psdr(:,:),nsdr(:,:),psdpr(:,:),nsdpr(:,:),ExpMat(:,:,:)
-COMPLEX (KIND = 8),ALLOCATABLE :: rhopij(:,:),rhonij(:,:)
-
-type (jaggedArray), dimension(int(jmin):int(jmax)) :: IntWig
-type (jaggedArray), dimension(int(jmin):int(jmax)) :: Hmat, Nmat, Hprime
-type (jaggedArray), dimension(int(jmin):int(jmax)) :: Hmatp, Hmatn, Nmatp, Nmatn
-type (jaggedArray), dimension(int(jmin):int(jmax)) :: PHmatp, PHmatn, PNmatp, PNmatn
-
+COMPLEX (KIND = 8),ALLOCATABLE :: rhopij(:,:),rhonij(:,:),Hmat(:,:),Nmat(:,:),Hprime(:,:)
+COMPLEX (KIND = 8),ALLOCATABLE :: Hmatp(:,:), Hmatn(:,:), Nmatp(:,:), Nmatn(:,:)
+COMPLEX (KIND = 8),ALLOCATABLE :: PHmatp(:,:), PHmatn(:,:), PNmatp(:,:), PNmatn(:,:)
 !Multiple Slater Determinant matrices
-type (jaggedArray), dimension(int(jmin):int(jmax)) :: SDHmat(:,:),SDNmat(:,:),SDPHmat(:,:),SDPNmat(:,:)
-type (jaggedArray), dimension(int(jmin):int(jmax)) :: TSDHmat(:,:),TSDNmat(:,:)
+COMPLEX (KIND = 8),ALLOCATABLE :: SDHmat(:,:),SDNmat(:,:),SDPHmat(:,:),SDPNmat(:,:)
+COMPLEX (KIND = 8),ALLOCATABLE :: TSDHmat(:,:),TSDNmat(:,:)
 COMPLEX (KIND = 8) :: ovlpp,ovlpn
 COMPLEX (KIND = 8) :: vme
 
@@ -148,6 +140,14 @@ real (kind = 8),ALLOCATABLE :: rwork(:)
 COMPLEX (kind = 8), ALLOCATABLE :: work(:)
 REAL (KIND = 8), ALLOCATABLE :: parOP(:), pairMat(:,:)
 real (kind=8) :: projfactor   ! (2j+1)/8pi^2, in order to correctly project out
+
+real (kind=8), allocatable, intent(in) :: alpha_i(:), gamma_k(:), beta_j(:)
+complex (kind = 8), allocatable, intent(inout)	:: N_ijk(:,:,:), H_ijk(:,:,:), PN_ijk(:,:,:), PH_ijk(:,:,:)
+complex (kind = 8), allocatable, intent(inout) :: allOvlpp(:,:,:,:), allOvlpn(:,:,:,:)
+complex (kind = 8), allocatable, intent(inout) :: allRhopij(:,:,:,:,:,:), allRhonij(:,:,:,:,:,:)
+logical, intent(in) :: isNorm
+
+npts = int(2.d0*js)+1 !2*Jmax+1
 
 ALLOCATE (psdr(nsps,numprot),nsdr(nsps,numneut))
 ALLOCATE (parOP(nsps),pairMat(nsps,nsps))
@@ -173,50 +173,29 @@ DO i = 1, hcheck
 END DO
 
 
-IF (ParTest) CALL MakeParityOp(parOP)
+IF (ParityTest) CALL MakeParityOp(parOP)
 
 !npts = 35  ! set from outside
 !tol = 0.1e0  ! set from outside
 ALLOCATE(xleg(npts),wleg(npts))
 ALLOCATE(xlegb(npts),wlegb(npts))
-!ALLOCATE(xjac(np,np,npts),wjac(np,np,npts))
+ALLOCATE(xjac(np,np,npts),wjac(np,np,npts))
 
 ALLOCATE(RotTesta(nsps,nsps),RotTestb(nsps,nsps),RotTestg(nsps,nsps))
+
+ALLOCATE(Hmatp(np,np),Hmatn(np,np),Nmatp(np,np),Nmatn(np,np))
+ALLOCATE(PHmatp(np,np),PHmatn(np,np),PNmatp(np,np),PNmatn(np,np))
+ALLOCATE(Hmat(np,np),Nmat(np,np),Hprime(numsd*np,numsd*np))
+
 ALLOCATE(RotMat(nsps,nsps),ExpMat(nsps,nsps,npts ))
 ALLOCATE (rhopij(nsps,nsps),rhonij(nsps,nsps))
 
-do intJ = int(jmin), int(jmax)
-	np = 2*intJ+1
-	if (isOdd) np = np + 1
-	allocate(phfA(intJ)%MK(np,np),phfB(intJ)%MK(np,np),phfG(intJ)%MK(np,np))
-	allocate(NphfA(intJ)%MK(np,np),NphfB(intJ)%MK(np,np),NphfG(intJ)%MK(np,np))
-	allocate(PphfA(intJ)%MK(np,np),PphfB(intJ)%MK(np,np),PphfG(intJ)%MK(np,np))
-	allocate(PNphfA(intJ)%MK(np,np),PNphfB(intJ)%MK(np,np),PNphfG(intJ)%MK(np,np))
+ALLOCATE(phfA(np,np),phfB(np,np),phfG(np,np),NphfA(np,np),NphfB(np,np),NphfG(np,np))
+ALLOCATE(PphfA(np,np),PphfB(np,np),PphfG(np,np),PNphfA(np,np),PNphfB(np,np),PNphfG(np,np))
+ALLOCATE(IntWig(np,np))
 
-	allocate(Hmatp(intJ)%MK(np,np),Hmatn(intJ)%MK(np,np),Nmatp(intJ)%MK(np,np),Nmatn(intJ)%MK(np,np))
-	allocate(PHmatp(intJ)%MK(np,np),PHmatn(intJ)%MK(np,np),PNmatp(intJ)%MK(np,np),PNmatn(intJ)%MK(np,np))
-	allocate(Hmat(intJ)%MK(np,np),Nmat(intJ)%MK(np,np),Hprime(intJ)%MK(numsd*np,numsd*np))
-
-	allocate(IntWig(intJ)%MK(np,np))
-
-	allocate(SDHmat(intJ)%MK(numsd*np,numsd*np),SDNmat(intJ)%MK(numsd*np,numsd*np))
-	allocate(SDPHmat(intJ)%MK(numsd*np,numsd*np),SDPNmat(intJ)%MK(numsd*np,numsd*np))
-	allocate(TSDHmat(intJ)%MK(numsd*np,numsd*np),TSDNmat(intJ)%MK(numsd*np,numsd*np))
-
-	Hmatp(intJ)%MK = cmplx(0.0d0,0.0d0)
-	Nmatp(intJ)%MK = cmplx(0.0d0,0.0d0)
-	Hprime(intJ)%MK = cmplx(0.0d0,0.0d0)
-
-	PHmatp(intJ)%MK = cmplx(0.0d0,0.0d0)
-	PNmatp(intJ)%MK = cmplx(0.0d0,0.0d0)
-
-	SDHmat(intJ)%MK = cmplx(0.0d0,0.0d0)
-	SDNmat(intJ)%MK = cmplx(0.0d0,0.0d0)
-
-	SDPHmat(intJ)%MK = cmplx(0.0d0,0.0d0)
-	SDPNmat(intJ)%MK = cmplx(0.0d0,0.0d0)
-
-end do
+ALLOCATE(SDHmat(numsd*np,numsd*np),SDNmat(numsd*np,numsd*np),SDPHmat(numsd*np,numsd*np),SDPNmat(numsd*np,numsd*np))
+ALLOCATE(TSDHmat(numsd*np,numsd*np),TSDNmat(numsd*np,numsd*np))
 
 !Compute weights and abscissas for the alpha and gamma
 !integrals using Gauss-Legendre quadrature
@@ -226,248 +205,97 @@ CALL gauleg(0.0d0,2.0d0*DASIN(1.0d0),xlegb,wlegb,npts)
 !CALL Trap_Points(0.0d0,4.0d0*DASIN(1.0d0),nptsl,xleg,wleg)
 !CALL W_Exp(xleg,nptsl,ExpMat)   
 
+Hmatp = CMPLX(0.0d0,0.0d0)
+Nmatp = CMPLX(0.0d0,0.0d0)
+Hprime = CMPLX(0.0d0,0.0d0)
 
-! Main quadrature loop
+PHmatp = CMPLX(0.0d0,0.0d0)
+PNmatp = CMPLX(0.0d0,0.0d0)
+
+SDHmat = CMPLX(0.0d0,0.0d0)
+SDNmat = CMPLX(0.0d0,0.0d0)
+
+SDPHmat = CMPLX(0.0d0,0.0d0)
+SDPNmat = CMPLX(0.0d0,0.0d0)
+
+hmp = js
+
 pairMat = 0.0d0
 DO i = 1, nsps
 	pairMat(i,i) = parOP(i)
 END DO
-DO sditi = 1, numsd
-	DO sditj = 1, numsd
-		do intJ = int(jmin), int(jmax)
-		    phfA(intJ)%MK =  CMPLX(0.0d0,0.0d0)
-		    NphfA(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		    IF (ParTest) PphfA(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		    IF (ParTest) PNphfA(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		    !RotTesta = CMPLX(0.0d0,0.0d0)
-		end do
-        DO alp = 1, npts
-			do intJ = int(jmin), int(jmax)
-		        phfB(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		        NphfB(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		        IF (ParTest) PphfB(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		        IF (ParTest) PNphfB(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		        !RotTestb = CMPLX(0.0d0,0.0d0) 2.000   2.000
-			end do
-            DO bet = 1, npts
-				do intJ = int(jmin), int(jmax)
-		            phfG(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		            NphfG(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		            IF (ParTest) PphfG(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		            IF (ParTest) PNphfG(intJ)%MK = CMPLX(0.0d0,0.0d0)
-		            !RotTestg = CMPLX(0.0d0,0.0d0)
-				end do
-                DO gam = 1, npts
-                    CALL Psi_New(xleg(alp),xlegb(bet),xleg(gam),RotMat)
 
-                    !	Modified for strictly Gauss-Legendre quadrature
-                    !Using generated R matrix, Rotate the neutron and proton slater determinants
-                    psdr = MATMUL(RotMat,psd(sditj,:,:))
-                    nsdr = MATMUL(RotMat,nsd(sditj,:,:))
+! ///////////////// CALCULATE N_ijk & H_ijk  /////////////////
+if (isNorm) then ! N_ijk
+    sditi = 1
+    sditj = 1
+    DO alp = 1, int(2.d0*js)+1 !np = bigJmax
+	    DO bet = 1, int(js)+1
+		    DO gam = 1, int(2.d0*js)+1
 
-                    ! Generate neutron and proton overlaps (ovlp*) as well as the density matrices (rho*ij)
-                    CALL makerhoij(1,numprot,psdr,psd(sditi,:,:),ovlpp,rhopij)
-                    CALL makerhoij(2,numneut,nsdr,nsd(sditi,:,:),ovlpn,rhonij)
+			    CALL Psi_New(alpha_i(alp),beta_j(bet),gamma_k(gam),RotMat)
 
-                    !Generate <H> = vme for each step in the integration
-                    CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
+			    !	Modified for strictly Gauss-Legendre quadrature
+			    !Using generated R matrix, Rotate the neutron and proton slater determinants  
+			    psdr = MATMUL(RotMat,psd(sditj,:,:))
+			    nsdr = MATMUL(RotMat,nsd(sditj,:,:))
 
-					do intJ = int(jmin), int(jmax)
-						floatJ = dble(intJ)
-						if (isOdd) floatJ = floatJ + 0.5d0
+			    ! Generate neutron and proton overlaps (ovlp*) as well as the density matrices (rho*ij)
+			    CALL makerhoij(1,numprot,psdr,psd(sditi,:,:),ovlpp,rhopij)
+			    CALL makerhoij(2,numneut,nsdr,nsd(sditi,:,:),ovlpn,rhonij)
 
-						np = int(2.0d0*floatJ) + 1
-						projfactor = (2*floatJ+1.d0)/8.d0/(pi)**2
+			    N_ijk(alp,bet,gam) = ovlpp*ovlpn
 
-		                call Wigner_d2(floatJ,int(np,kind=4),xleg(alp),xlegb(bet),xleg(gam),IntWig(intJ)%MK)
+                allOvlpp(1,alp,bet,gam) = ovlpp
+                allOvlpn(1,alp,bet,gam) = ovlpn
+                allRhopij(1,alp,bet,gam,:,:) = rhopij
+                allRhonij(1,alp,bet,gam,:,:) = rhonij
 
-	                    ! build the integral for each m' and m in your user defined Wigner matrix
-		                phfG(intJ)%MK = phfG(intJ)%MK + wleg(gam)*IntWig*vme*DSIN(xlegb(bet))*projfactor
-		                NphfG(intJ)%MK = NphfG(intJ)%MK + wleg(gam)*IntWig*ovlpp*ovlpn*DSIN(xlegb(bet))*projfactor
-					end do
+			    psdr = psd(sditj,:,:)
+			    nsdr = nsd(sditj,:,:)
 
-                    !Recompute with Pairity operator on slater determinant
-                    !    BEGIN PAIRITY CALCULATIONS
-                    !Apply pairity operator
-                    
-                    psdr = psd(sditj,:,:)
-                    nsdr = nsd(sditj,:,:)
-                    
-                    IF (ParTest) then
-                    
-                        psdr = MATMUL(RotMat,psdr)
-                        nsdr = MATMUL(RotMat,nsdr)
-                        
-			          	psdr = MATMUL(pairMat,psdr)
-			          	nsdr = MATMUL(pairMat,nsdr)
-			          	
-			          	! Hit it with the parity operator
-			          	
-			          	!FORALL(pairP = 1:nsps)
-                        !    psdr(pairP,:) = pairOP(pairP)*psdr(pairP,:)
-                        !    nsdr(pairP,:) = pairOP(pairP)*nsdr(pairP,:)
-                        !END FORALL
+			    IF (ParityTest) THEN
+				    psdr = MATMUL(RotMat,psdr)
+				    nsdr = MATMUL(RotMat,nsdr)
 
-              	        ! Generate neutron and proton overlaps (ovlp*) as well as the density matrices (roh*ij)
-                        
-                        !psdr = MATMUL(RotMat,psd(sditj,:,:))
-                        !nsdr = MATMUL(RotMat,nsd(sditj,:,:))
-                        
-                        ! THEN you rotate
-                        
-                        !psdr = MATMUL(RotMat,psdr)
-                        !nsdr = MATMUL(RotMat,nsdr)
+				    psdr = MATMUL(pairMat,psdr)
+				    nsdr = MATMUL(pairMat,nsdr)
 
-                    	CALL makerhoij(1,numprot,psdr,psd(sditi,:,:),ovlpp,rhopij)
-                    	CALL makerhoij(2,numneut,nsdr,nsd(sditi,:,:),ovlpn,rhonij)
+				    CALL makerhoij(1,numprot,psdr,psd(sditi,:,:),ovlpp,rhopij)
+				    CALL makerhoij(2,numneut,nsdr,nsd(sditi,:,:),ovlpn,rhonij)
 
-                    	!Generate <H> = vme for each step in the integration
-					!	print*,' parity transformed ',real(ovlpp*ovlpn)
+				    PN_ijk(alp,bet,gam) = ovlpp*ovlpn
 
-                    	CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
+                    allOvlpp(2,alp,bet,gam) = ovlpp
+                    allOvlpn(2,alp,bet,gam) = ovlpn
+                    allRhopij(2,alp,bet,gam,:,:) = rhopij
+                    allRhonij(2,alp,bet,gam,:,:) = rhonij
+               END IF
+		    END DO
+	    END DO
+    END DO
+else ! H_ijk
+    sditi = 1
+    sditj = 1
+    DO alp = 1, int(2.d0*js)+1
+	    DO bet = 1, int(js + 1.d0)
+		    DO gam = 1, int(2.d0*js)+1
+			    !Generate <H> = vme for each step in the integration
+!			    CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
+			    CALL TBMEmaster(nsps,allRhopij(1,alp,bet,gam,:,:),allRhonij(1,alp,bet,gam,:,:), &
+                                                allOvlpp(1,alp,bet,gam),allOvlpn(1,alp,bet,gam),vme)
+			    H_ijk(alp,bet,gam) = vme
 
-						do intJ = int(jmin), int(jmax)		! MOVE TO MAIN LOOP, I.E. "vme2"
-							floatJ = dble(intJ)
-							if (isOdd) floatJ = floatJ + 0.5d0
-
-							np = int(2.0d0*floatJ) + 1
-							projfactor = (2*floatJ+1.d0)/8.d0/(pi)**2
-
-				            call Wigner_d2(floatJ,int(np,kind=4),xleg(alp),xlegb(bet),xleg(gam),IntWig)
-
-			                ! build the integral for each m' and m in your user defined Wigner matrix
-		                	PphfG = PphfG + wleg(gam)*IntWig*vme*DSIN(xlegb(bet))*projfactor
-		                	PNphfG = PNphfG + wleg(gam)*IntWig*ovlpp*ovlpn*DSIN(xlegb(bet))*projfactor
-						end do
- 	
-		           END IF
-
-                END DO
-				do intJ = int(jmin), int(jmax)
-		            phfB(intJ)%MK = phfB(intJ)%MK + wlegb(bet)*phfG(intJ)%MK
-		            NphfB(intJ)%MK = NphfB(intJ)%MK + wlegb(bet)*NphfG(intJ)%MK
-		            IF (ParTest) PphfB(intJ)%MK = PphfB(intJ)%MK + wlegb(bet)*PphfG(intJ)%MK
-		            IF (ParTest) PNphfB(intJ)%MK = PNphfB(intJ)%MK + wlegb(bet)*PNphfG(intJ)%MK
-		            !RotTestb = RotTestb + wlegb(bet)*RotTestg
-				do intJ = int(jmin), int(jmax)
-            END DO
-			do intJ = int(jmin), int(jmax)
-		        phfA(intJ)%MK = phfA(intJ)%MK + wleg(alp)*phfB(intJ)%MK
-		        NphfA(intJ)%MK = NphfA(intJ)%MK + wleg(alp)*NphfB(intJ)%MK
-		        IF (ParTest) PphfA(intJ)%MK = PphfA(intJ)%MK + wleg(alp)*PphfB(intJ)%MK
-		        IF (ParTest) PNphfA(intJ)%MK = PNphfA(intJ)%MK + wleg(alp)*PNphfB(intJ)%MK
-	            !RotTesta = RotTesta + wleg(alp)*RotTestb
-			do intJ = int(jmin), int(jmax)
-        END DO   ! alp
-	do intJ = int(jmin), int(jmax)
-		floatJ = dble(intJ)
-		if (isOdd) floatJ = floatJ + 0.5d0
-		np = int(2.0d0*floatJ) + 1
-
-		Hmatp(intJ)%MK = phfA(intJ)%MK
-		!phf(jloc)%h = Hmatp
-		!Store H-matrix in appropriate location in larger Mult-SD matrix
-		SDHmat(intJ)%MK((sditi-1)*np+1:sditi*np,(sditj-1)*np+1:sditj*np) = Hmatp(intJ)%MK
-
-		Nmatp(intJ)%MK = NphfA(intJ)%MK
-		!phf(jloc)%n = Nmatp
-		!Store N-matrix in appropriate location in larger Mult-SD matrix
-		SDNmat(intJ)%MK((sditi-1)*np+1:sditi*np,(sditj-1)*np+1:sditj*np) = Nmatp(intJ)%MK
-
-		!Repeat with mixed-parity matrices
-		IF (ParTest) THEN
-			PHmatp(intJ)%MK = PphfA(intJ)%MK
-			!phfp(jloc)%h = PHmatp
-		  	SDPHmat(intJ)%MK((sditi-1)*np+1:sditi*np,(sditj-1)*np+1:sditj*np) = PHmatp(intJ)%MK
-
-			PNmatp(intJ)%MK = PNphfA(intJ)%MK
-			!phfp(jloc)%n = PNmatp
-			SDPNmat(intJ)%MK((sditi-1)*np+1:sditi*np,(sditj-1)*np+1:sditj*np) = PNmatp(intJ)%MK
-		END IF
-
-	end do
-
-	!End the multiple slater determinant loops
-	END DO
-END DO
-
-!	TEST MATRICES
-!
-!testing = .false.
-!if(testing)then
-!write(*,*) "H Matrix"
-!do ii = 1,np
-!	write(*,*) SDHmat(ii,:)
-!end do
-!write(*,*)
-!write(*,*) "PH Matrix"
-!do ii = 1,np
-!	write(*,*) SDPHmat(ii,:)
-!end do
-!write(*,*) 
-!write(*,*) "N Matrix"
-!do ii = 1,np
-!	write(*,*) SDNmat(ii,:)
-!end do
-!write(*,*) 
-!write(*,*) "PN Matrix"
-!do ii = 1,np
-!	write(*,*) SDPNmat(ii,:)
-!end do
-!write(*,*)
-!write(*,*) "Energies ::"
-!end if
-!
-!	Compute Trace of the Norm matrix (testing)
-!
-!trnorm = 0.0d0
-!do ii = 1, np
-!	trnorm = trnorm + REAL(Nmatp(ii,ii))
-!end do
-!
-!write(*,*) "HF Contribution: ",trnorm
-
-1099 format('No states projected for J =  ',1F8.1)		!??? check JFUNK
-
-!Use Cholesky decomposition to produce H N^-1
-nkeep = 0
-!WRITE(*,*) ''
-pevals = 0.0d0
-ntrace = 0.0d0
-DO  pairOUT = 1, npair
-	TSDHmat = CMPLX(0.0d0,0.0d0)
-	TSDNmat = CMPLX(0.0d0,0.0d0)
-	IF (ParTest) THEN
-	    TSDHmat = SDHmat + (-1.0d0)**(pairOUT+1)*SDPHmat
-    	TSDNmat = SDNmat + (-1.0d0)**(pairOUT+1)*SDPNmat
-    	! For a 1 SD test
-	    !TSDHmat = Hmatp + (-1.0d0)**(pairOUT+1)*PHmatp
-    	!TSDNmat = Nmatp + (-1.0d0)**(pairOUT+1)*PNmatp
-    ELSE
-    	TSDHmat = SDHmat
-    	TSDNmat = SDNmat
-    END IF
-    nf = numsd*np
-!    Computing trace of norm matrix
-    
-    DO itt = 1,np
-        ntrace(pairout) = ntrace(pairout) + real(TsdNmat(itt,itt))
-!		print*,real(TsdNmat(itt,itt))
-    
-    END DO    
-
-!    do itt = 1,np
-!		write(*,*)(real(TsdHmat(itt,jtt)),jtt=1,np)
-!	end do
-!............. ROUTINES FOR SOLVING GENERALIZED PROBLEM...........
-!call geneigsolverCholesky(int(numsd*np,kind=4),npair,pairOUT,TSDNMat,TSDHMat,tol,posdef,nf,pevals)
-    call geneigsolverdiag(int(numsd*np,kind=4),npair,pairOUT,TSDNMat,TSDHMat,tol,posdef,nf,pevals,normvals)
-        IF (nf > nkeep) THEN
-            nkeep = nf
-        END IF
-END DO
-
-nf = nkeep
+			    IF (ParityTest) THEN
+!				    CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
+				    CALL TBMEmaster(nsps,allRhopij(2,alp,bet,gam,:,:),allRhonij(2,alp,bet,gam,:,:), &
+                                                    allOvlpp(2,alp,bet,gam),allOvlpn(2,alp,bet,gam),vme)
+				    PH_ijk(alp,bet,gam) = vme
+               END IF
+		    END DO
+	    END DO
+    END DO
+end if
 
 END SUBROUTINE Projection_with_Parity
 

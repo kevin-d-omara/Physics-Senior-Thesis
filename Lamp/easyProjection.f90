@@ -1,6 +1,6 @@
 ! ///////////////// VERSION CONTROL /////////////////
 !	
-! Latest Version 1.1.7.1
+! Latest Version 1.1.8.4
 !
 ! note: this document was written with a tab width of 4 spaces
 !
@@ -58,11 +58,27 @@
 !                           - was adding parity term after trace calculations: <|> +- <Psi|RP|Psi>
 !                           - removed printTrace and addToTrace subroutines
 !	1.1.7.1	03/11/16	: quick patch -> sum of Hamiltonian no longer reports sum of Norm
+!   1.1.8.0 04/11/16    : begin Independent Norm => initial unentanglement of Norm & Hamiltonian
+!   1.1.8.1 04/12/16    : added extractNorm & printNorm
+!   1.1.8.2 04/12/16    : independent norm COMPLETE! only missing "autoChoose" feature
+!   1.1.8.3 04/13/16    : changed terminology: ephf.x --> lamp.x (linear algebra angular momentum projection)
+!                           - replaced npts with bigJmax
+!   1.1.8.4 04/13/16    : updated phf_applyh.f and phf_tbme.f
+!                           - from phf_v10 to phf_v13
+!                           - properly ordered loops (i.e. column-major; row fastest changing index for speed)
+!
+! Todo:
+!   - add title info at first run which includes version number
+!   - add "autoChooser"
+!   - replace tabs with spaces
+!
+! Note: '!!' means not in dictionary yet (also not in subroutine description)
 !
 !  POTENTIAL PROBLEMS:
 !    - wigner_d function -> M, K possibly flipped
 !    - subroutine extractPiecemealElements & mirrorSolution not heavily tested
 !    - all work for extracting eigenvalues is spread thin (i.e. little testing, little understanding b.c. I'm borrowing from J. Staker)
+!    - replace Tabs with Spaces; note: some already replaced, but not all
 !
 ! /////////////////// BLUEPRINTS ////////////////////
 !
@@ -116,7 +132,7 @@
 ! //initialize//
 !   psd, nsd = proton/neutron slater determinants
 !   psdf, nsdf = ^^ with a third dimension to allow multiple slater determinants (i.e. numsd > 1)
-!   ParityTest = checks for proper parity [?]
+!   ParityTest = logical, .true. if even/odd parity
 !
 ! //inputJmax//
 !   Jmax = maximum J value for projection [user input]
@@ -126,15 +142,19 @@
 !
 ! //tolerance & number of points//
 !   tolerance = cuttoff point for eliminating zeroes in the Norm matrix (during zhegvdiag)
-!   npts = number of alpha and gamma points in the norm/Hamiltonian overlap (number of points)
 !
 ! //allocate (pre-body)//
 !   N_ijk, H_ijk = norm/Hamiltonian overlap matrix [eq. 13]
+!   allOvlpp(2,i,j,k) = ovlpp => dimension 1: 1=even 2=odd
+!   allOvlpn(2,i,j,k) = ovlpn => dimension 1: 1=even 2=odd
+!   allRhopij(2,i,j,k,:,:) = rhopij => dimension 1: 1=even 2=odd
+!   allRhonij(2,i,j,k,:,:) = rhopij => dimension 1: 1=even 2=odd
 !   alpha_i, gamma_k = vector containing angles / overlap points [before eq. 17]
 !   beta_j = vector containing angles / overlap points [eq. 20]
 !   Z_Mi, Z_Kk = inverse alpha/gamma solution [eq. 17]
 !   N_jMK, H_jMK = first intermediate norm/hamiltonian vector for a fixed value of M & K [eq. 18]
 !   N_J_MK, H_J_MK = norm/Hamiltonian jagged array containing full solution with indices (J,M,K) [eq. 22]
+!   nlist = length of problist, hamlist, and jlist; int(Jmax-Jmin)+1
 !
 ! //build N_ijk & H_ijk//
 !   posdefP = if positive definite states found [logical]
@@ -180,29 +200,28 @@ subroutine J_Main
 			logical, intent(out) :: ParityTest
 		end subroutine allocateSlaterDet
 
-		subroutine inputJMAX(Jmax,bigJmax,isOdd,numOfJ)
+		subroutine inputJmax(Jmax,bigJmax,isOdd,numOfJ)
 			use system_parameters
 			implicit none
 			real (kind=4), intent(out) :: Jmax
 			integer, intent(out) :: bigJmax
 			logical, intent(out) :: isOdd
 			integer, intent(out) :: numOfJ
-		end subroutine inputJMAX
+		end subroutine inputJmax
 
-		subroutine inputToleranceAndNumberOfPoints(tolerance,npts)
+		subroutine inputTolerance(tolerance)
 			implicit none
 			real (kind=4), intent(out) :: tolerance
-			integer (kind=4), intent(out) :: npts
-		end subroutine inputToleranceAndNumberOfPoints
+		end subroutine inputTolerance
 
-		subroutine populateAlpBetGam(npts,numOfJ,alpha_i,beta_j,gamma_k)
+		subroutine populateAlpBetGam(bigJmax,numOfJ,alpha_i,beta_j,gamma_k)
 			implicit none
-			integer, intent(in) :: npts
-			integer, intent(in) :: numOfJ
+			integer, intent(in) :: bigJmax, numOfJ
 			real (kind=8), allocatable, intent(out) :: alpha_i(:), gamma_k(:), beta_j(:)
 		end subroutine populateAlpBetGam
 
-		subroutine Projection_with_Parity(js,np,psd,nsd,tol,npts,ParTest,alpha_i,beta_j,gamma_k,N_ijk,H_ijk,PN_ijk,PH_ijk)
+		subroutine Projection_with_Parity(js,np,psd,nsd,tol,ParTest,alpha_i,beta_j, &
+            gamma_k,N_ijk,H_ijk,PN_ijk,PH_ijk,allOvlpp,allOvlpn,allRhopij,allRhonij,isNorm)
 			use phf_vals
 			use system_parameters
 			use spstate
@@ -213,24 +232,26 @@ subroutine J_Main
 			real (kind = 8), intent(in) :: js
 			complex (kind = 8), intent(in) :: psd(numsd,nsps,numprot), nsd(numsd,nsps,numneut)
 			real (kind=4) :: tol
-			integer(kind=8):: npts
 			logical, intent(in) :: ParTest
 			real (kind=8), allocatable, intent(in) :: alpha_i(:), gamma_k(:), beta_j(:)
 			complex (kind = 8), allocatable, intent(inout)	:: N_ijk(:,:,:), H_ijk(:,:,:), PN_ijk(:,:,:), PH_ijk(:,:,:)
+            complex (kind = 8), allocatable, intent(inout) :: allOvlpp(:,:,:,:), allOvlpn(:,:,:,:)
+            complex (kind = 8), allocatable, intent(inout) :: allRhopij(:,:,:,:,:,:), allRhonij(:,:,:,:,:,:)
+            logical, intent(in) :: isNorm
 	   end subroutine Projection_with_Parity
 
-		subroutine populateZeta(intMK,floatMK,npts,angle_ik,zeta)
+		subroutine populateZeta(intMK,floatMK,bigJmax,angle_ik,zeta)
 			implicit none
-			integer (kind=4), intent(in) :: intMK, npts
+			integer (kind=4), intent(in) :: intMK, bigJmax
 			real (kind=4), intent(in) :: floatMK
 			real (kind=8), allocatable, intent(in) :: angle_ik(:)
 			complex (kind=8), allocatable, intent(inout) :: zeta(:)
 		end subroutine populateZeta
 
-		subroutine populateNH_jMK(Jmax,npts,numOfJ,Z_Mi,Z_Kk,NH_ijk,NH_jMK)
+		subroutine populateNH_jMK(Jmax,bigJmax,numOfJ,Z_Mi,Z_Kk,NH_ijk,NH_jMK)
 			implicit none
 			real (kind=4), intent(in) :: Jmax
-			integer (kind=4), intent(in) :: npts, numOfJ
+			integer (kind=4), intent(in) :: bigJmax, numOfJ
 			complex(kind=8), allocatable, intent(in) :: Z_Mi(:), Z_Kk(:)
 			complex (kind = 8), allocatable, intent(in)	:: NH_ijk(:,:,:)
 			complex (kind = 8), allocatable, intent(inout) :: NH_jMK(:)
@@ -272,6 +293,28 @@ subroutine J_Main
 			type (jaggedArray), allocatable, intent(inout) :: NH_J_MK(:)
 		end subroutine mirrorSolution
 
+        subroutine extractNorm(numOfJ,isOdd,N_J_MK,PN_J_MK,ParityTest,nlist,problist)
+        	use phf_vals
+	        use jaggedArrayType
+	        implicit none
+	        integer (kind=4), intent(in) :: numOfJ
+	        logical, intent(in) :: isOdd
+	        type (jaggedArray), allocatable, intent(in) :: N_J_MK(:), PN_J_MK(:)
+	        logical, intent(in) :: ParityTest
+	        integer (kind=4), intent(in) :: nlist
+	        real (kind=8), intent(out) :: problist(2,nlist)
+        end subroutine extractNorm
+
+        subroutine printNorm(numOfJ,isOdd,ParityTest,nlist,problist,printTo)
+	        implicit none
+	        integer (kind=4), intent(in) :: numOfJ
+	        logical, intent(in) :: isOdd
+	        logical, intent(in) :: ParityTest
+	        integer (kind=4), intent(in) :: nlist
+	        real (kind=8), intent(out) :: problist(2,nlist)
+            integer (kind=4) :: printTo
+        end subroutine printNorm
+
 		subroutine EigenSolverPackage(numOfJ,isOdd,N_J_MK,H_J_MK,PN_J_MK,PH_J_MK,posdefP,ParityTest,tolerance, &
 										npmax,nftotal,jall,pallPair,nlist,jlist,normSum,hamSum,problist,hamlist)
 			use phf_vals
@@ -308,10 +351,11 @@ subroutine J_Main
 	!tolerance & number of points
 	integer (kind=4) :: clockStart, clockEnd, clockRate
 	real (kind=4) :: tolerance, elapsedTime
-	integer (kind=4) :: npts
 
     !allocate (pre-body)
-	complex (kind=8), allocatable	:: N_ijk(:,:,:), H_ijk(:,:,:), PN_ijk(:,:,:), PH_ijk(:,:,:)
+	complex (kind=8), allocatable :: N_ijk(:,:,:), H_ijk(:,:,:), PN_ijk(:,:,:), PH_ijk(:,:,:)
+    complex (kind=8), allocatable :: allOvlpp(:,:,:,:), allOvlpn(:,:,:,:)
+    complex (kind = 8), allocatable :: allRhopij(:,:,:,:,:,:), allRhonij(:,:,:,:,:,:)
 	real (kind=8), allocatable :: alpha_i(:), gamma_k(:), beta_j(:)
 	complex(kind=8), allocatable :: Z_Mi(:), Z_Kk(:)
 	complex (kind=8), allocatable :: N_jMK(:), H_jMK(:), PN_jMK(:), PH_jMK(:)
@@ -339,6 +383,12 @@ subroutine J_Main
 	integer (kind=4), allocatable :: IPIVOT(:)
 	integer (kind=4) :: INFO
 
+    ! prompt user
+    character (len=1) :: choice
+    logical :: autoChoose, finalNorm
+    integer :: iostatus
+    character (len=100) :: filename
+
 	! trace
 	complex (kind=8), allocatable :: normTrace(:), PnormTrace(:), hamTrace(:), PhamTrace(:)
 	complex (kind = 8) :: normSum, hamSum
@@ -349,74 +399,238 @@ subroutine J_Main
 	call testset
 	call allocateSlaterDet(psd,nsd,psdf,nsdf,ParityTest)
 	call PairLog(ParityTest)
+	call inputTolerance(tolerance)
 
-	!input Jmax
-	call inputJmax(Jmax,bigJmax,isOdd,numOfJ)
-	call inputToleranceAndNumberOfPoints(tolerance,npts)
+    autoChoose = .false.
+    finalNorm = .false.
+    normLoop: do
+	    !input Jmax
+        if (autoChoose) then
+!            call autoChooser()
+            print *, "autoChooser (under construction)"
+        else
+    	    call inputJmax(Jmax,bigJmax,isOdd,numOfJ)
+        end if
+
+	    call system_clock(COUNT_RATE = clockRate)
+	    call system_clock(COUNT = clockStart)
+	    !allocate (pre-body)
+	    allocate(N_ijk(bigJmax,numOfJ,bigJmax),H_ijk(bigJmax,numOfJ,bigJmax))
+	    allocate(PN_ijk(bigJmax,numOfJ,bigJmax),PH_ijk(bigJmax,numOfJ,bigJmax))
+        allocate(allOvlpp(2,bigJmax,numOfJ,bigJmax),allOvlpn(2,bigJmax,numOfJ,bigJmax))
+        allocate(allRhopij(2,bigJmax,numOfJ,bigJmax,nsps,nsps),allRhonij(2,bigJmax,numOfJ,bigJmax,nsps,nsps))
+	    allocate(alpha_i(bigJmax),beta_j(numOfJ),gamma_k(bigJmax))
+	    allocate(Z_Mi(bigJmax),Z_Kk(bigJmax))
+	    allocate(N_jMK(numOfJ), H_jMK(numOfJ))
+	    if (ParityTest) allocate(PN_jMK(numOfJ), PH_jMK(numOfJ))
+	    allocate(normTrace(numOfJ),PnormTrace(numOfJ),hamTrace(numOfJ),PhamTrace(numOfJ))
+	    allocate(N_J_MK(numOfJ),H_J_MK(numOFJ))
+	    if (ParityTest) allocate(PN_J_MK(numOfJ),PH_J_MK(numOFJ))
+	    do intJ =1, numOfJ !allocate "jagged" sizes to norm and Hamiltonian
+    !		tempBigJ = int(2.*intJ)-1
+		    tempBigJ = 2*intJ-1
+		    if (isOdd) tempBigJ = tempBigJ + 1
+		    allocate(N_J_MK(intJ)%MK(tempBigJ,tempBigJ))
+		    allocate(H_J_MK(intJ)%MK(tempBigJ,tempBigJ))
+		    if (ParityTest) then
+			    allocate(PN_J_MK(intJ)%MK(tempBigJ,tempBigJ))
+			    allocate(PH_J_MK(intJ)%MK(tempBigJ,tempBigJ))
+		    end if
+	    end do
+        Jmin = 0.0
+        if (isOdd) Jmin = 0.5
+	    npmax = int((Jmax-Jmin+1.0d0)*(Jmin+Jmax+1.0d0))!!
+	    nlist = int(Jmax-Jmin)+1
+	    allocate(jall(npmax),pallPair(2,npmax),jlist(nlist),problist(2,nlist),hamlist(2,nlist))!!
+	
+	    call populateAlpBetGam(bigJmax,numOfJ,alpha_i,beta_j,gamma_k)
+
+	    ! build N_ijk & H_ijk
+	    if (.not.ParityTest) posdefP(2) = .false. !necessary(?)
+	    call Projection_with_Parity(dble(Jmax),dbleInt(bigJmax),psdf,nsdf,tolerance, & !populates N_ijk, H_ijk
+                ParityTest,alpha_i,beta_j,gamma_k,N_ijk,H_ijk,PN_ijk,PH_ijk,allOvlpp,allOvlpn,allRhopij,allRhonij,.true.)
+
+	    ! main body (Norm)
+	    do intM = 1, bigJmax !-Jmax to Jmax
+		    floatM = float(intM) - (Jmax + 1.)
+		    call populateZeta(intM,floatM,bigJmax,alpha_i,Z_Mi) !Z_Mi [eq. 17]
+
+		    do intK = 1, intM !-Jmax to M; M>=J
+			    floatK = float(intK) - (Jmax + 1.)
+			    call populateZeta(intK,floatK,bigJmax,gamma_k,Z_Kk) !Z_Kk [eq. 17]
+			    call populateNH_jMK(Jmax,bigJmax,numOfJ,Z_Mi,Z_Kk,N_ijk,N_jMK) !first intermediate Norm [eq. 18]
+			    if (ParityTest) then
+				    call populateNH_jMK(Jmax,bigJmax,numOfJ,Z_Mi,Z_Kk,PN_ijk,PN_jMK)
+			    end if
+
+			    Jmin = max(abs(floatM),abs(floatK))
+			    sizeOfNorm = int(Jmax - Jmin) + 1
+			    allocate(N_Jprime_MK(sizeOfNorm))
+			    if (ParityTest) allocate(PN_Jprime_MK(sizeOfNorm))
+			    allocate(deltaJpJ(sizeOfNorm,sizeOfNorm),tempDeltaJpJ(sizeOfNorm,sizeOfNorm))
+			    if (ParityTest) allocate(PNtempDeltaJpJ(sizeOfNorm,sizeOfNorm))
+			    allocate(IPIVOT(sizeOfNorm))
+
+			    do intJprime = 1, sizeOfNorm ! Jmin to Jmax
+				    floatJprime = float(intJprime) + Jmin - 1.															!second intermediate
+				    call putElementIn_NH_Jprime_MK(intJprime,floatJprime,numOfJ,floatM,floatK,beta_j,N_jMK,N_Jprime_MK) !Norm [eq. 21]
+				    if (ParityTest) then
+					    call putElementIn_NH_Jprime_MK(intJprime,floatJprime,numOfJ,floatM,floatK,beta_j,PN_jMK,PN_Jprime_MK)
+				    end if
+
+				    do intJ = 1, sizeOfNorm ! Jmin to Jmax
+					    floatJ = float(intJ) + Jmin - 1.
+					    call putElementIn_deltaJpJ(intJprime,intJ,floatJprime,floatJ,floatM,floatK,beta_j,numOfJ,deltaJpJ) !deltaJpJ [eq. 19]
+				    end do
+			    end do
+
+			    ! Invert to find the Norm and Hamiltonian matrices, N_J_MK & H_J_MK
+    !			tempDeltaJpJ = deltaJpJ
+			    if (ParityTest) then
+				    PNtempDeltaJPJ = deltaJpJ
+			    end if
+
+			    ! Solve Norm [eq 22] (held in N_Jprime_MK) & build full solution N_J_MK
+			    call ZGESV(sizeOfNorm,1,deltaJpJ,sizeOfNorm,IPIVOT,N_Jprime_MK,sizeOfNorm,INFO)
+			    call errorZGESV(INFO)
+			    call extractPiecemealElements(numOfJ,sizeOfNorm,intM,intK,N_Jprime_MK,N_J_MK)
+
+			    if (ParityTest) then
+				    call ZGESV(sizeOfNorm,1,PNtempDeltaJPJ,sizeOfNorm,IPIVOT,PN_Jprime_MK,sizeOfNorm,INFO)
+				    call errorZGESV(INFO)
+				    call extractPiecemealElements(numOfJ,sizeOfNorm,intM,intK,PN_Jprime_MK,PN_J_MK)
+			    end if
+
+			    deallocate(N_Jprime_MK,deltaJpJ,tempDeltaJpJ,IPIVOT)
+			    if (ParityTest) deallocate(PN_Jprime_MK,PNtempDeltaJpJ)
+		    end do
+	    end do
+
+	    call mirrorSolution(N_J_MK)
+	    if (ParityTest) then
+		    call mirrorSolution(PN_J_MK)
+	    end if
+
+        if (finalNorm) exit normLoop
+        call extractNorm(numOfJ,isOdd,N_J_MK,PN_J_MK,ParityTest,nlist,problist)
+        call printNorm(numOfJ,isOdd,ParityTest,nlist,problist,6)
+
+        call system_clock(COUNT = clockEnd)
+        elapsedTime = (real(clockEnd) - real(clockStart))/real(clockRate)
+        print '(/,A,F8.2,A,/)', "Total norm calculation time: ", elapsedTime, " seconds"
+        ! end main body (Norm)
+
+        ! prompt user
+        promptLoop: do
+            print *, "Select a choice"
+            print *, "(C) Continue with Hamiltonian calculation"
+            print *, "(R) Re-calculate norm w/different maxJ"
+            print *, "(P) Print norm results to a file"
+            print *, "(X) Exit"
+            read(*,*) choice
+            normChoice: select case(choice)
+                case('c','C')
+                    exit normLoop
+                case('r','R')
+                    print *, "(A) Automatically determine lowest maxJ (under construction)"
+                    print *, "(M) Manually chose"
+                    read(*,*) choice
+                    autoChoose = .false.
+                    if ((choice == 'a').OR.(choice == 'A')) autoChoose = .true.
+                    print *, "(F) Final norm calculation (i.e. no prompt, continue to Hamiltonian afterwards)"
+                    print *, "(N) Not final calculation (i.e. display result and prompt again)"
+                    read(*,*) choice
+                    finalNorm = .false.
+                    if ((choice == 'f').OR.(choice == 'F')) finalNorm = .true.
+
+                    deallocate(N_ijk,H_ijk)
+                    deallocate(PN_ijk,PH_ijk)
+                    deallocate(allOvlpp,allOvlpn)
+                    deallocate(allRhopij,allRhonij)
+                    deallocate(alpha_i,beta_j,gamma_k)
+                    deallocate(Z_Mi,Z_Kk)
+                    deallocate(N_jMK, H_jMK)
+                    if (ParityTest) deallocate(PN_jMK, PH_jMK)
+                    deallocate(normTrace,PnormTrace,hamTrace,PhamTrace)
+                    deallocate(N_J_MK,H_J_MK)
+                    if (ParityTest) deallocate(PN_J_MK,PH_J_MK)
+                    deallocate(jall,pallPair,jlist,problist,hamlist)!!
+
+                    exit promptLoop
+
+                case('p','P')
+                    do
+	                    write(*,*) 'Enter file name (without extention -- .dat added): '
+	                    read(*,*) filename
+	                    filename = TRIM(filename)//'.dat'
+	                    open(unit = 66, file = filename, status = 'NEW',iostat = iostatus)
+	                    if (iostatus > 0) then
+		                    write(*,*) "File already exists: Overwrite (o), append (a), new file name (n)?"
+		                    read(*,*) choice
+		                    do
+			                    if ((choice == 'o').or.(choice == 'O')) then
+				                    close(unit = 66)
+				                    open(unit = 66, file = filename, status = 'REPLACE')
+				                    exit
+			                    elseif ((choice == 'a').OR.(choice == 'A')) then
+				                    close(UNIT = 66)
+				                    open(UNIT = 66,file = filename, status = 'OLD', position = 'APPEND')
+				                    exit
+			                    elseif ((choice == 'n').OR.(choice == 'N')) then
+				                    close(unit = 66)
+				                    exit
+			                    else
+				                    write(*,*) 'Incorrect choice.  Please select again.'
+			                    end if
+		                    end do
+		                    if ((choice.ne.'n').and.(choice.ne.'N')) exit
+	                    else
+		                    exit
+	                    end if
+                    end do
+
+                    call printNorm(numOfJ,isOdd,ParityTest,nlist,problist,66)
+                    print '(/,A,A,/)', 'Data written to:', filename
+                case('x','X')
+                    return
+                case default
+                    print *, "Invalid choice."
+            end select normChoice
+        end do promptLoop
+    end do normLoop
 
 	call system_clock(COUNT_RATE = clockRate)
 	call system_clock(COUNT = clockStart)
-	!allocate (pre-body)
-	allocate(N_ijk(npts,numOfJ,npts),H_ijk(npts,numOfJ,npts))
-	allocate(PN_ijk(npts,numOfJ,npts),PH_ijk(npts,numOfJ,npts))
-	allocate(alpha_i(npts),beta_j(numOfJ),gamma_k(npts))
-	allocate(Z_Mi(npts),Z_Kk(npts))
-	allocate(N_jMK(numOfJ), H_jMK(numOfJ))
-	if (ParityTest) allocate(PN_jMK(numOfJ), PH_jMK(numOfJ))
-	allocate(normTrace(numOfJ),PnormTrace(numOfJ),hamTrace(numOfJ),PhamTrace(numOfJ))
-	allocate(N_J_MK(numOfJ),H_J_MK(numOFJ))
-	if (ParityTest) allocate(PN_J_MK(numOfJ),PH_J_MK(numOFJ))
-	do intJ =1, numOfJ !allocate "jagged" sizes to norm and Hamiltonian
-!		tempBigJ = int(2.*intJ)-1
-		tempBigJ = 2*intJ-1
-		if (isOdd) tempBigJ = tempBigJ + 1
-		allocate(N_J_MK(intJ)%MK(tempBigJ,tempBigJ))
-		allocate(H_J_MK(intJ)%MK(tempBigJ,tempBigJ))
-		if (ParityTest) then
-			allocate(PN_J_MK(intJ)%MK(tempBigJ,tempBigJ))
-			allocate(PH_J_MK(intJ)%MK(tempBigJ,tempBigJ))
-		end if
-	end do
-	npmax = int((jMax-jMin+1.0d0)*(jMin+jMax+1.0d0))!!
-	nlist = int(jMax-jMin)+1!!
-	allocate(jall(npmax),pallPair(2,npmax),jlist(nlist),problist(2,nlist),hamlist(2,nlist))!!
-	
-	call populateAlpBetGam(npts,numOfJ,alpha_i,beta_j,gamma_k)
-
-	! build N_ijk & H_ijk
+	! main body (Hamiltonian)
+	! build H_ijk (i.e. vme) (bottleneck)
 	if (.not.ParityTest) posdefP(2) = .false. !necessary(?)
-	call Projection_with_Parity(dble(Jmax),dbleInt(bigJmax),psdf,nsdf,tolerance,int(npts,kind=8), & !populates N_ijk, H_ijk
-										ParityTest,alpha_i,beta_j,gamma_k,N_ijk,H_ijk,PN_ijk,PH_ijk)
+	call Projection_with_Parity(dble(Jmax),dbleInt(bigJmax),psdf,nsdf,tolerance, & !populates N_ijk, H_ijk
+            ParityTest,alpha_i,beta_j,gamma_k,N_ijk,H_ijk,PN_ijk,PH_ijk,allOvlpp,allOvlpn,allRhopij,allRhonij,.false.)
 
-	! main body
 	do intM = 1, bigJmax !-Jmax to Jmax
 		floatM = float(intM) - (Jmax + 1.)
-		call populateZeta(intM,floatM,npts,alpha_i,Z_Mi) !Z_Mi [eq. 17]
+		call populateZeta(intM,floatM,bigJmax,alpha_i,Z_Mi) !Z_Mi [eq. 17]
 
 		do intK = 1, intM !-Jmax to M; M>=J
 			floatK = float(intK) - (Jmax + 1.)
-			call populateZeta(intK,floatK,npts,gamma_k,Z_Kk) !Z_Kk [eq. 17]
-			call populateNH_jMK(Jmax,npts,numOfJ,Z_Mi,Z_Kk,N_ijk,N_jMK) !first intermediate Norm [eq. 18]
-			call populateNH_jMK(Jmax,npts,numOfJ,Z_Mi,Z_Kk,H_ijk,H_jMK) !first intermediate Hamiltonian [eq. 18]
+			call populateZeta(intK,floatK,bigJmax,gamma_k,Z_Kk) !Z_Kk [eq. 17]
+			call populateNH_jMK(Jmax,bigJmax,numOfJ,Z_Mi,Z_Kk,H_ijk,H_jMK) !first intermediate Hamiltonian [eq. 18]
 			if (ParityTest) then
-				call populateNH_jMK(Jmax,npts,numOfJ,Z_Mi,Z_Kk,PN_ijk,PN_jMK)
-				call populateNH_jMK(Jmax,npts,numOfJ,Z_Mi,Z_Kk,PH_ijk,PH_jMK)
+				call populateNH_jMK(Jmax,bigJmax,numOfJ,Z_Mi,Z_Kk,PH_ijk,PH_jMK)
 			end if
 
 			Jmin = max(abs(floatM),abs(floatK))
 			sizeOfNorm = int(Jmax - Jmin) + 1
-			allocate(N_Jprime_MK(sizeOfNorm),H_Jprime_MK(sizeOfNorm))
-			if (ParityTest) allocate(PN_Jprime_MK(sizeOfNorm),PH_Jprime_MK(sizeOfNorm))
+			allocate(H_Jprime_MK(sizeOfNorm))
+			if (ParityTest) allocate(PH_Jprime_MK(sizeOfNorm))
 			allocate(deltaJpJ(sizeOfNorm,sizeOfNorm),tempDeltaJpJ(sizeOfNorm,sizeOfNorm))
-			if (ParityTest) allocate(PNtempDeltaJpJ(sizeOfNorm,sizeOfNorm),PHtempDeltaJpJ(sizeOfNorm,sizeOfNorm))
+			if (ParityTest) allocate(PHtempDeltaJpJ(sizeOfNorm,sizeOfNorm))
 			allocate(IPIVOT(sizeOfNorm))
 
 			do intJprime = 1, sizeOfNorm ! Jmin to Jmax
 				floatJprime = float(intJprime) + Jmin - 1.															!second intermediate
-				call putElementIn_NH_Jprime_MK(intJprime,floatJprime,numOfJ,floatM,floatK,beta_j,N_jMK,N_Jprime_MK) !Norm [eq. 21]
 				call putElementIn_NH_Jprime_MK(intJprime,floatJprime,numOfJ,floatM,floatK,beta_j,H_jMK,H_Jprime_MK) !Hamiltonian [eq. 21]
 				if (ParityTest) then
-					call putElementIn_NH_Jprime_MK(intJprime,floatJprime,numOfJ,floatM,floatK,beta_j,PN_jMK,PN_Jprime_MK)
 					call putElementIn_NH_Jprime_MK(intJprime,floatJprime,numOfJ,floatM,floatK,beta_j,PH_jMK,PH_Jprime_MK)
 				end if
 
@@ -427,42 +641,32 @@ subroutine J_Main
 			end do
 
 			! Invert to find the Norm and Hamiltonian matrices, N_J_MK & H_J_MK
-			tempDeltaJpJ = deltaJpJ
+!			tempDeltaJpJ = deltaJpJ
 			if (ParityTest) then
-				PNtempDeltaJPJ = deltaJpJ
 				PHtempDeltaJpJ = deltaJpJ
 			end if
-			! Solve Norm [eq 22] (held in N_Jprime_MK) & build full solution N_J_MK
-			call ZGESV(sizeOfNorm,1,deltaJpJ,sizeOfNorm,IPIVOT,N_Jprime_MK,sizeOfNorm,INFO)
-			call errorZGESV(INFO)
-			call extractPiecemealElements(numOfJ,sizeOfNorm,intM,intK,N_Jprime_MK,N_J_MK)
 
 			! Solve Hamiltonian [eq 22] (held in H_Jprime_MK) & build full solution H_J_MK
-			call ZGESV(sizeOfNorm,1,tempDeltaJpJ,sizeOfNorm,IPIVOT,H_Jprime_MK,sizeOfNorm,INFO)
+			call ZGESV(sizeOfNorm,1,deltaJpJ,sizeOfNorm,IPIVOT,H_Jprime_MK,sizeOfNorm,INFO)
 			call errorZGESV(INFO)
 			call extractPiecemealElements(numOfJ,sizeOfNorm,intM,intK,H_Jprime_MK,H_J_MK)
 
 			if (ParityTest) then
-				call ZGESV(sizeOfNorm,1,PNtempDeltaJPJ,sizeOfNorm,IPIVOT,PN_Jprime_MK,sizeOfNorm,INFO)
-				call errorZGESV(INFO)
-				call extractPiecemealElements(numOfJ,sizeOfNorm,intM,intK,PN_Jprime_MK,PN_J_MK)
-
 				call ZGESV(sizeOfNorm,1,PHtempDeltaJPJ,sizeOfNorm,IPIVOT,PH_Jprime_MK,sizeOfNorm,INFO)
 				call errorZGESV(INFO)
 				call extractPiecemealElements(numOfJ,sizeOfNorm,intM,intK,PH_Jprime_MK,PH_J_MK)
 			end if
 
-			deallocate(N_Jprime_MK,H_Jprime_MK,deltaJpJ,tempDeltaJpJ,IPIVOT)
-			if (ParityTest) deallocate(PN_Jprime_MK,PH_Jprime_MK,PNtempDeltaJpJ,PHtempDeltaJpJ)
+			deallocate(H_Jprime_MK,deltaJpJ,tempDeltaJpJ,IPIVOT)
+			if (ParityTest) deallocate(PH_Jprime_MK,PHtempDeltaJpJ)
 		end do
-	end do !end main body
+	end do
 
-	call mirrorSolution(N_J_MK)
 	call mirrorSolution(H_J_MK)
 	if (ParityTest) then
-		call mirrorSolution(PN_J_MK)
 		call mirrorSolution(PH_J_MK)
 	end if
+    ! end main body (Hamiltonian)
 
 	call EigenSolverPackage(numOfJ,isOdd,N_J_MK,H_J_MK,PN_J_MK,PH_J_MK,posdefP,ParityTest,tolerance, &
 								npmax,nftotal,jall,pallPair,nlist,jlist,normSum,hamSum,problist,hamlist)
@@ -474,7 +678,7 @@ subroutine J_Main
 	print *,' Sum of norms = ', dble(normSum)
 	print *,' Sum of trace(H) = ', dble(hamSum)
 
-	call J_WriteResults(int(npts,kind=8),tolerance,npmax,nftotal,jall,pallPair,nlist,jlist,problist,hamlist,ParityTest)!!
+	call J_WriteResults(tolerance,npmax,nftotal,jall,pallPair,nlist,jlist,problist,hamlist,ParityTest)!!
 ! npmax?
 ! jall?
 ! pallPair? (+misspelled)
@@ -580,40 +784,35 @@ return; end subroutine inputJmax
 !
 ! OUTPUT:
 !	tolerance = cuttoff point for eliminating zeroes in the Norm matrix (during zhegvdiag)
-!	npts = number of alpha and gamma points in the norm/Hamiltonian overlap 
 !
-subroutine inputToleranceAndNumberOfPoints(tolerance,npts)
+subroutine inputTolerance(tolerance)
 
 	implicit none
 !............OUTPUT......................
 	real (kind=4), intent(out) :: tolerance
-	integer (kind=4), intent(out) :: npts
 
 !---------------------- USER ENTERS VALUES ------------------------
 	print *, ' Enter tolerance for norm (typical = 0.01) '
 	read(*,*) tolerance
-	print *, ' Enter # of inversion pts (typical = 25)'
-	read(*,*) npts
 
-return; end subroutine inputToleranceAndNumberOfPoints
+return; end subroutine inputTolerance
 !==============================================================================
 !
 ! [equation 17 (before)] and [equation 20]
 ! populates alpha_i, beta_j, and gamma_k vectors
 !
 !  INPUT:
-!	npts = number of alpha and gamma points in the norm/Hamiltonian overlap 
+!	bigJmax = 2*Jmax+1; number of alpha and gamma points in the norm/Hamiltonian overlap 
 !
 ! OUTPUT:
 !	alpha_i, gamma_k = vector containing angles / overlap points [before eq. 17]
-!	beta_j = vector containing angles / overlap points [eq. 20]
+!	beta_j = vector contanining angles / overlap points [eq. 20]
 !
-subroutine populateAlpBetGam(npts,numOfJ,alpha_i,beta_j,gamma_k)
+subroutine populateAlpBetGam(bigJmax,numOfJ,alpha_i,beta_j,gamma_k)
 
 	implicit none
 !........... INPUT........................	
-	integer, intent(in) :: npts
-	integer, intent(in) :: numOfJ
+	integer, intent(in) :: bigJmax, numOfJ
 
 !............OUTPUT......................
 	real (kind=8), allocatable, intent(out) :: alpha_i(:), beta_j(:), gamma_k(:)
@@ -623,10 +822,10 @@ subroutine populateAlpBetGam(npts,numOfJ,alpha_i,beta_j,gamma_k)
 	integer :: ii
 
 !-------------------- POPULATE ALPHA(i) & GAMMA(k) ----------------
-	allocate(alpha_i(1:npts)); allocate(gamma_k(1:npts))
+	allocate(alpha_i(1:bigJmax)); allocate(gamma_k(1:bigJmax))
 
-	do ii = 1, npts
-		alpha_i(ii) = (float(ii)-1.)*(2.*pi)/float(npts)
+	do ii = 1, bigJmax
+		alpha_i(ii) = (float(ii)-1.)*(2.*pi)/float(bigJmax)
 		gamma_k(ii) = alpha_i(ii)
 	!	if (test1) write(*,'(A,I2.1,A,F6.3)') 'alpha(',ii,') = ', alpha_i(ii)
 	end do
@@ -661,17 +860,17 @@ return; end function
 !  INPUT:
 !	intMK = vector index (M or K)
 !	floatMK = *shifted* real value for M or K (shifted to accomodate for negative M or K values)
-!	npts = number of alpha and gamma points in the norm/Hamiltonian overlap 
+!	bigJmax = 2*Jmax+1; number of alpha and gamma points in the norm/Hamiltonian overlap 
 !	angle_ik = alpha_i or gamma_k vector containing angles / overlap points [before eq. 17]
 !
 ! OUTPUT:
 !	zeta = Z_Mi or Z_Kk vector -> specific to the input M or K
 !
-subroutine populateZeta(intMK,floatMK,npts,angle_ik,zeta)
+subroutine populateZeta(intMK,floatMK,bigJmax,angle_ik,zeta)
 
 	implicit none
 !........... INPUT........................	
-	integer (kind=4), intent(in) :: intMK, npts
+	integer (kind=4), intent(in) :: intMK, bigJmax
 	real (kind=4), intent(in) :: floatMK
 	real (kind=8), allocatable, intent(in) :: angle_ik(:)
 
@@ -682,8 +881,8 @@ subroutine populateZeta(intMK,floatMK,npts,angle_ik,zeta)
 	integer (kind=4) :: ik
 
 !------------------------- POPULATE ZETA --------------------------
-	do ik = 1, npts
-		zeta(ik) = dcmplx(1.d0/dble(npts),0.d0) * exp(-(0.d0,1.d0)*dble(floatMK)*angle_ik(ik))
+	do ik = 1, bigJmax
+		zeta(ik) = dcmplx(1.d0/dble(bigJmax),0.d0) * exp(-(0.d0,1.d0)*dble(floatMK)*angle_ik(ik))
 !		if (test1) write(*,'(A,I2.1,A,I2.1,A,F7.4,2X,F7.4)') 'zeta(',intMK,',',ik,') = ', zeta(ik)
 	end do
 
@@ -695,7 +894,7 @@ return; end subroutine populateZeta
 !
 !  INPUT:
 !	Jmax = for projection
-!	npts = number of alpha and gamma points in the norm/Hamiltonian overlap 
+!	bigJmax = 2*Jmax+1; number of alpha and gamma points in the norm/Hamiltonian overlap 
 !	numOfJ = # of beta values
 !	Z_Mi, Z_Kk = inverse alpha/gamma solution [eq. 17]
 !	NH_ijk = norm or Hamiltonian overlap matrix (N_ijk or H_ijk) [eq. 13]
@@ -703,12 +902,12 @@ return; end subroutine populateZeta
 ! OUTPUT:
 !	NH_jMK = first intermediate norm/Hamiltonian vector for a fixed value of M & K
 !
-subroutine populateNH_jMK(Jmax,npts,numOfJ,Z_Mi,Z_Kk,NH_ijk,NH_jMK)
+subroutine populateNH_jMK(Jmax,bigJmax,numOfJ,Z_Mi,Z_Kk,NH_ijk,NH_jMK)
 
 	implicit none
 !........... INPUT........................
 	real (kind=4), intent(in) :: Jmax
-	integer (kind=4), intent(in) :: npts, numOfJ
+	integer (kind=4), intent(in) :: bigJmax, numOfJ
 	complex(kind=8), allocatable, intent(in) :: Z_Mi(:), Z_Kk(:)
 	complex (kind = 8), allocatable, intent(in)	:: NH_ijk(:,:,:)
 
@@ -721,8 +920,8 @@ subroutine populateNH_jMK(Jmax,npts,numOfJ,Z_Mi,Z_Kk,NH_ijk,NH_jMK)
 !------------------------ POPULATE NH_jMK --------------------------
 NH_jMK = (0.d0,0.d0)
 do jj = 1, numOfJ
-	do ii = 1, npts
-		do kk = 1, npts
+	do ii = 1, bigJmax
+		do kk = 1, bigJmax
 			NH_jMK(jj) = NH_jMK(jj) + Z_Mi(ii)*Z_Kk(kk)*NH_ijk(ii,jj,kk)
 		end do
 	end do
@@ -933,9 +1132,15 @@ return; end subroutine mirrorSolution
 !
 !  INPUT:
 !	numOfJ = # of beta values -> int(Jmax + 1.)
+!   isOdd = logical flag for odd A nuclides
 !	N_J_MK, H_J_MK = full norm/Hamiltonian solution, held in a jagged array [eq. 22]
 !	posdefP = if positive definite states found [logical]
+!   ParityTest = logical, .true. if even/odd parity
 !   tolerance = cuttoff point for eliminating zeroes in the Norm matrix (during zhegvdiag)
+!   nlist = length of problist, hamlist, and jlist; int(Jmax-Jmin)+1
+!
+! OUTPUT:
+!   problist(2,:) = fraction of original HF state in the norm for each J
 !
 !  INTERNAL:
 !	ParityEvals(i=1,numberFound) = energy eigenvalues found
@@ -1068,4 +1273,130 @@ subroutine EigenSolverPackage(numOfJ,isOdd,N_J_MK,H_J_MK,PN_J_MK,PH_J_MK,posdefP
 	1001 format(I3,2X,2F12.5,2X,F4.1)
 	1002 format(I3,2X,F12.5,2X,F4.1)
 return; end subroutine EigenSolverPackage
+
+!==============================================================================
+!
+! populates problist from the sovled Norm.
+!
+!  INPUT:
+!	numOfJ = # of beta values -> int(Jmax + 1.)
+!   isOdd = logical flag for odd A nuclides
+!	N_J_MK = full norm solution, held in a jagged array [eq. 22]
+!   ParityTest = logical, .true. if even/odd parity
+!   nlist = length of problist, hamlist, and jlist; int(Jmax-Jmin)+1
+!
+! OUTPUT:
+!   problist(2,:) = fraction of original HF state in the norm for each J
+!
+!  INTERNAL:
+!	TSDNmat = temporary Slater determinant Norm matrix (holds values from N_J_MK)
+!	npair = number of parity states (i.e. 1 or 2) [via phf_vals module]
+!
+subroutine extractNorm(numOfJ,isOdd,N_J_MK,PN_J_MK,ParityTest,nlist,problist)
+
+	use phf_vals
+	use jaggedArrayType
+
+	implicit none
+
+!........... INPUT........................
+	integer (kind=4), intent(in) :: numOfJ
+	logical, intent(in) :: isOdd
+	type (jaggedArray), allocatable, intent(in) :: N_J_MK(:), PN_J_MK(:)
+	logical, intent(in) :: ParityTest
+	integer (kind=4), intent(in) :: nlist
+
+!............OUTPUT......................
+	real (kind=8), intent(out) :: problist(2,nlist)
+
+!............INTERNAL....................
+	integer (kind=4) :: intJ, kk
+	complex(kind=8), allocatable, dimension(:,:) :: TSDNmat
+	integer (kind=4) :: parityOUT
+
+	problist = 0.0d0
+	do intJ = 1, numOfJ
+		allocate(TSDNmat(ubound(N_J_MK(intJ)%MK,1),ubound(N_J_MK(intJ)%MK,2)))
+
+		do parityOUT = 1, npair
+			TSDNmat = cmplx(0.0d0,0.0d0)
+			if (ParityTest) then
+				TSDNmat = N_J_MK(intJ)%MK + (-1.0d0)**(parityOUT+1)*PN_J_MK(intJ)%MK
+			else
+				TSDNmat = N_J_MK(intJ)%MK
+			end if
+
+			do kk = 1, ubound(TSDNmat,1)
+				problist(parityOUT,intJ) = problist(parityOUT,intJ) + dble(TSDNmat(kk,kk))
+			end do
+		end do
+
+		deallocate(TSDNmat)
+	end do
+
+return; end subroutine extractNorm
+
+!==============================================================================
+!
+! prints formatted problist to screen or file
+!
+!  INPUT:
+!	numOfJ = # of beta values -> int(Jmax + 1.)
+!   isOdd = logical flag for odd A nuclides
+!   ParityTest = logical, .true. if even/odd parity
+!   nlist = length of problist, hamlist, and jlist; int(Jmax-Jmin)+1
+!   problist(2,:) = fraction of original HF state in the norm for each J
+!   printTo = target of write() statements
+!               6 == to screen (standard output)
+!               anything >=10 is an external file  
+!
+!  INTERNAL:
+!	jlist(:) = list of floating point J values (i.e. 0.0, 1.0, ...)
+!   probsum = sum of all elements in problist(2,:) should be 1.0 (or 2.0 if ParityTest)
+!
+subroutine printNorm(numOfJ,isOdd,ParityTest,nlist,problist,printTo)
+
+	implicit none
+
+!........... INPUT........................
+	integer (kind=4), intent(in) :: numOfJ
+	logical, intent(in) :: isOdd
+	logical, intent(in) :: ParityTest
+	integer (kind=4), intent(in) :: nlist
+	real (kind=8), intent(out) :: problist(2,nlist)
+    integer (kind=4) :: printTo
+
+!............INTERNAL....................
+	integer (kind=4) :: intJ
+    real(kind=8) :: jlist(nlist)
+    real(kind=8) :: probsum
+
+	do intJ = 1, numOfJ ! build jlist
+		jlist(intJ) = dble(intJ) - 1.0d0
+		if (isOdd) jlist(intJ) = jlist(intJ) + 0.5d0
+	end do
+
+    probsum = 0.d0 
+    write(printTo,*)' '
+    write(printTo,*)' Fraction in original HF state: Norm'
+    write(printTo,*)' '
+    if(ParityTest)then
+	    write(printTo,*)' J    frac(+)   frac(-)'
+	    write(printTo,*)'-----------------------'
+	    do intJ = 1,numOfJ
+		    write(printTo,2001)jlist(intJ),problist(1,intJ),problist(2,intJ)
+		    probsum = probsum+problist(1,intJ)+problist(2,intJ)
+	    end do
+	    2001 format(f4.1,2f10.6)
+    else
+	    write(printTo,*)' J    frac'
+	    write(printTo,*)'-----------------------'
+	    do intJ = 1,numOfJ
+		    write(printTo,2001)jlist(intJ),problist(1,intJ)
+		    probsum = probsum+problist(1,intJ)
+	    end do
+    end if
+    write(printTo,*)' Total of sum of trace(N) = ',probsum
+
+return; end subroutine printNorm
 

@@ -34,7 +34,9 @@ hfampPAIRFAST.o \
 hfamp_menu.o \
 gaujactest.o \
 gauleg.o  \
-phflib.o 
+phflib.o \
+easyProjection.o \
+zgesv.f 
 
 
 %.o : %.f90
@@ -45,11 +47,11 @@ phflib.o
 
 #.f.o:;  (cd $(<D); $(COMPILER) -c  $(CFLAGS) $(<F))
 
-phf.x : $(HF_OBJECTS)
-	$(COMPILER90) -o phf_nptsGraph.x $(HF_OBJECTS) $(LFLAGS) $(DPLIBS) $(LIBS)
+ephf.x : $(HF_OBJECTS)
+	$(COMPILER90) -o lamp.x $(HF_OBJECTS) $(LFLAGS) $(DPLIBS) $(LIBS)
 
-phf.nol.x : $(HF_OBJECTS)
-	    $(COMPILER90) -o phf_nptsGraph.x $(HF_OBJECTS) $(LFLAGS) $(DPLIBS)
+ephf.nol.x : $(HF_OBJECTS)
+	    $(COMPILER90) -o lamp.x $(HF_OBJECTS) $(LFLAGS) $(DPLIBS)
 	
 clean :
 	rm -v *.o *.mod

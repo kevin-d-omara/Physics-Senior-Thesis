@@ -1,112 +1,3 @@
-SUBROUTINE J_Main
-
-USE system_parameters
-USE spstate
-USE sporbit
-USE psis
-USE errortests
-
-IMPLICIT NONE
-
-INTEGER (KIND = 8) :: i,k
-CHARACTER (LEN = 1) :: choice
-COMPLEX (KIND = 8),ALLOCATABLE :: psd(:,:),nsd(:,:)
-COMPLEX (KIND = 8),ALLOCATABLE :: psdf(:,:,:),nsdf(:,:,:)
-REAL (KIND = 8) :: ehartree
-COMPLEX (KIND = 8),ALLOCATABLE :: rhopij(:,:),rhonij(:,:)
-COMPLEX (KIND = 8) :: ovlpp,ovlpn,vme
-LOGICAL :: pairTest
-
-!CALL GetSherpaSD(psd,nsd)
-
-numruns = 0
-WRITE(*,*) ''
-WRITE(*,*) '**************************'
-WRITE(*,*) '* Projected Hartree-Fock *'
-WRITE(*,*) '*                        *'
-WRITE(*,*) '*                        *'
-WRITE(*,*) '* (Joshua Staker)        *' 
-WRITE(*,*) '* Calvin Johnson         *'
-WRITE(*,*) '*                        *'
-WRITE(*,*) '* 2015 v10 Jul 2015       *'
-WRITE(*,*) '*                        *'
-WRITE(*,*) '**************************'
-DO
-	WRITE(*,*) ''
-	WRITE(*,*) 'H.F.A.M.P. Main Menu'
-	WRITE(*,*) '--------------------'
-	WRITE(*,*) ''
-	WRITE(*,*) '(T) Test Rotation'
-	WRITE(*,*) '(H) Hartree-Fock Observable'
-	!WRITE(*,*) '(S) Single J Value Projection'
-	WRITE(*,*) '(J) Angular Momentum Projections'
-	WRITE(*,*) '(O) Observable Projection (under construction)'
-	WRITE(*,*) '(D) Skew Slater Determinats (under construction)'
-	WRITE(*,*) '(X) Exit'
-	WRITE(*,*) ''
-	WRITE(*,*) 'Enter Choice: '
-	READ(*,*) choice
-	IF ((choice == 't').OR.(choice == 'T')) THEN
-		WRITE(*,*) ''
-		CALL testset
-		!CALL GetSherpaSD(psd,nsd)
-		CALL testrotate
-		WRITE(*,*) ''
-		WRITE(*,*) 'Unprojected single rotation complete. '
-		numruns = numruns + 1
-	ELSEIF ((choice == 'h').OR.(choice == 'H')) THEN
-		CALL testset
-		ALLOCATE(psd(nsps,numprot),nsd(nsps,numneut))
-		ALLOCATE(rhopij(nsps,nsps),rhonij(nsps,nsps))
-		CALL GetSherpaSD(psd,nsd)
-		CALL makerhoij(1,numprot,psd,psd,ovlpp,rhopij)
-		CALL makerhoij(2,numneut,nsd,nsd,ovlpn,rhonij)
-		CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
-		ehartree = vme/(ovlpp*ovlpn)
-		WRITE(*,*) ''
-		WRITE(*,*) 'Hartree-Fock < H >: ',ehartree
-		WRITE(*,*) ''
-		DEALLOCATE(psd,nsd,rhopij,rhonij)
-		numruns = numruns + 1
-	ELSEIF ((choice == 's').OR.(choice == 'S')) THEN
-		WRITE(*,*) ''
-		WRITE(*,*) 'Single J Value:'
-		!CALL to_monte
-		CALL testset
-		ALLOCATE (psd(nsps,numprot),nsd(nsps,numneut))
-		CALL GetSherpaSD(psd,nsd)
-		CALL PairLog(pairTest)
-		CALL J_Single(psd,nsd,pairTest)
-		DEALLOCATE(psd,nsd)
-		numruns = numruns + 1
-	ELSEIF ((choice == 'j').OR.(choice == 'J')) THEN
-		WRITE(*,*) ''
-		WRITE(*,*) 'Multiple J Values:'
-		!CALL to_monte
-		CALL testset
-		ALLOCATE (psd(nsps,numprot),nsd(nsps,numneut))
-		write(*,*) "Enter number of Slater Determinants: "
-		read(*,*) numsd
-		ALLOCATE (psdf(numsd,nsps,numprot),nsdf(numsd,nsps,numneut))
-		DO i = 1,numsd
-			CALL GetSherpaSD(psd,nsd)
-			psdf(i,:,:) = psd
-			nsdf(i,:,:) = nsd
-		END DO
-		CALL PairLog(pairTest)
-		CALL J_Range(psdf,nsdf,pairTest)
-		DEALLOCATE(psd,nsd,psdf,nsdf)
-		numruns = numruns + 1
-	ELSEIF ((choice == 'x').OR.(choice == 'X')) THEN
-		WRITE(*,*) ''
-		WRITE(*,*) 'See ya next time.'
-		RETURN
-	ELSE
-		WRITE(*,*) 'Invalid choice, select again. '
-	END IF
-END DO
-
-END SUBROUTINE J_Main
 !====================================================================
 
 SUBROUTINE J_Single(psd,nsd,pairTest)
@@ -262,29 +153,25 @@ interface
 	REAL (KIND = 8), DIMENSION(np), INTENT(IN) :: pevals
     end subroutine J_write   ! INTERFACE
 
-    SUBROUTINE Projection_with_Parity(jmin,jmax,isOdd,psd,nsd,tol,npts,nf,posdef,PairTest,ntrace, &
-													problist,jlist,probsum,nftotal,jall,pallPair)  ! INTERFACE
+    SUBROUTINE Projection_with_Parity(js, np, psd, nsd, tol,npts,nf, pevals,posdef,PairTest,ntrace)  ! INTERFACE
     USE phf_vals
     USE system_parameters
     USE spstate
     USE psis
     USE errortests
     IMPLICIT NONE
-    REAL (KIND = 8), INTENT(IN) :: jmin, jmax
+    INTEGER (KIND = 8), INTENT(IN) :: np
+    REAL (KIND = 8), INTENT(IN) :: js
     COMPLEX (KIND = 8), INTENT(IN) :: psd(numsd,nsps,numprot), nsd(numsd,nsps,numneut)
 	real (kind=4) :: tol
 	integer(kind=8):: npts
     LOGICAL, INTENT(IN) :: PairTest
     LOGICAL, INTENT(INOUT) :: posdef(2)
     INTEGER (KIND = 8), INTENT(OUT) :: nf
+    REAL (KIND = 8), INTENT(OUT) :: pevals(npair,numsd*np)
 	real (kind=8) :: ntrace(2)
-	logical :: isOdd
-	real(kind=8), intent(inout) :: problist(2,int(jmax-jmin)+1), jlist(int(jmax-jmin)+1), probsum
-	integer (kind = 8), intent(out) :: nftotal
-	real (kind=8), dimension(int((jmax-jmin+1.0d0)*(jmin+jmax+1.0d0))), intent(inout) :: jall
-	real (kind=8), dimension(2,int((jmax-jmin+1.0d0)*(jmin+jmax+1.0d0))), intent(inout) :: pallPair
    end subroutine Projection_with_Parity   ! INTERFACE
-
+   
    SUBROUTINE J_WriteResults(npts,tol,np,nf,jvals,pevals,nlist,jlist,problist,parityflag)  ! INTERFACE
    USE errortests
    IMPLICIT NONE
@@ -307,22 +194,20 @@ real (kind=8) :: ntrace(2)
 
 real(kind=8),allocatable :: problist(:,:),jlist(:)  ! probabilities for finding a given J
 real(kind=8) :: probsum                    ! summed probability
-integer :: nlist
+integer :: nlist,ilist
 INTEGER :: A
 INTEGER (KIND = 8):: i, k, nf, np, npmax, nftotal
 INTEGER :: clock_start, clock_end, clock_rate
 REAL :: elapsed_time
-REAL(KIND = 8) :: jmin,jmax,check,hdtot,ndtot,hd,nd
+REAL(KIND = 8) :: jmin,jmax,js,check,hdtot,ndtot,hd,nd
 REAL(KIND = 8), ALLOCATABLE, DIMENSION(:) :: pevals,jall,pall
-REAL(KIND = 8), ALLOCATABLE, DIMENSION(:,:) :: pallPair
+REAL(KIND = 8), ALLOCATABLE, DIMENSION(:,:) :: PairEvals,pallPair
 CHARACTER (LEN = 13) :: jstring
 LOGICAL :: posdef = .true.,posdefP(2) = .true.
 
 logical :: ask4tol = .true. 
 real :: tol
 integer(kind=8) :: npts
-
-logical :: isOdd
 
 1001 FORMAT(I6,4X,F12.5,4X,F8.5,4X,F3.1,4x)
 !1001 FORMAT(1F8.1,4x,G15.8)
@@ -340,11 +225,9 @@ A = numprot + numneut
 IF (MOD(A,2) == 0) THEN
 	check = 0.0d0
 	jstring = 'integer'
-	isOdd = .false.
 ELSE
 	check = 1.0d0
 	jstring = 'half-integer'
-	isOdd = .true.
 ENDIF
 
 WRITE(*,*) 'Enter J-min, J-max range to project (',TRIM(jstring),' values):'
@@ -365,6 +248,8 @@ DO
 END DO
 WRITE(*,*) ''
 
+js = jmin
+
 CALL phf_dealloc
 CALL phf_alloc(jmin,jmax,pairtest)
 
@@ -381,6 +266,8 @@ pallpair=0.d0
 
 pall = 0.0d0
 jall = 0.0d0
+
+nftotal = 0
 
 !........ ADDED IN V 10..........
 
@@ -410,10 +297,48 @@ write(*,*)' '
 	WRITE(*,1007)
 	CALL SYSTEM_CLOCK(COUNT_RATE = clock_rate)
 	CALL SYSTEM_CLOCK(COUNT = clock_start)
+	probsum = 0.0	
+	ilist = 0
+	DO
+		np = INT(2.0d0*js) + 1
+		ALLOCATE(PairEvals(npair,numsd*np))		
+		CALL Projection_with_Parity(js,np,psdf,nsdf,tol,npts,nf,PairEvals,posdefP(:),pairTest,ntrace)		
+		ilist=ilist+1
 
-	CALL Projection_with_Parity(jmin,jmax,isOdd,psdf,nsdf,tol,npts,nf,posdefP(:),pairTest,ntrace, &
-													problist,jlist,probsum,nftotal,jall,pallPair)	
-
+		if(pairTest)then
+		    problist(:,ilist)=ntrace(:)/float(numsd)
+			probsum = probsum+ntrace(1)+ntrace(2)
+		else
+		    problist(1,ilist)=ntrace(1)/float(numsd)
+			probsum = probsum + ntrace(1)	/float(numsd)
+		end if
+		jlist(ilist)=js
+		IF ((posdefP(1) .EQV. .TRUE.).OR.(posdefP(2) .EQV. .TRUE.)) THEN
+			!WRITE(*,*) ''
+			!WRITE(*,*) '    J  ',' Energy (MeV)'
+			DO i = 1, nf
+				nftotal = nftotal + 1
+				IF (pairTest) THEN
+					WRITE(*,1002) nftotal,PairEvals(1,i),PairEvals(2,i),js
+				ELSE
+					WRITE(*,1001) nftotal,PairEvals(1,i),js
+				END IF
+				jall(nftotal) = js
+				pallPair(1,nftotal) = PairEvals(1,i)
+				IF (pairTest) pallPair(2,nftotal) = PairEvals(2,i)
+			END DO
+			!WRITE(*,*) ''
+		END IF
+		
+        if(nf<1)then
+			write(*,*)' No states for J = ',js
+		end if
+		DEALLOCATE(PairEvals)
+		js = js + 1.0d0
+		IF (js > jmax) THEN
+			EXIT
+		END IF
+	END DO
 	CALL SYSTEM_CLOCK(COUNT = CLOCK_END)
 	elapsed_time = (REAL(clock_end) - REAL(clock_start))/REAL(clock_rate)
 	WRITE(*,*)
@@ -648,20 +573,19 @@ END SUBROUTINE J_WritePair
 !     parityflag : logical flag if true then possible to have different parities
 !
 
-SUBROUTINE J_WriteResults(npts,tol,np,nf,jvals,pevals,nlist,jlist,problist,parityflag)
+SUBROUTINE J_WriteResults(tol,np,nf,jvals,pevals,nlist,jlist,problist,hamlist,parityflag)
 
 USE errortests
 
 IMPLICIT NONE
 
-integer(kind=8) :: npts
 real :: tol
 INTEGER (KIND = 8), INTENT(IN) :: nf, np
 REAL (KIND = 8), DIMENSION(np), INTENT(IN) :: jvals
 REAL (KIND = 8), DIMENSION(2,np), INTENT(IN) :: pevals
 integer :: nlist  ! size of list of j's
-real(kind=8) :: problist(2,nlist),jlist(nlist)
-real(kind=8) :: probsum
+real(kind=8) :: problist(2,nlist),hamlist(2,nlist),jlist(nlist)
+real(kind=8) :: probsum,hamSum
 logical :: parityflag
 
 
@@ -738,8 +662,8 @@ DO
 		EXIT
 	END IF
 END DO
-write(10,*)' Projected Hartree-Fock Results '
-write(10,*)' (# of mesh pts = ',npts,' cutoff criterion = ',tol,')'
+write(10,*)' Easy Projection Results '
+write(10,*)' (cutoff criterion = ',tol,')'
 write(10,*)' '
 if(parityflag)then
 	write(10,*)' State    E(+ parity)  E(-parity)   J'
@@ -762,7 +686,7 @@ end if
 !END DO
 probsum = 0.d0 
 write(10,*)' '
-write(10,*)' Fraction in original HF state '
+write(10,*)' Fraction in original HF state: Norm'
 write(10,*)' '
 if(parityflag)then
 	write(10,*)' J    frac(+)   frac(-)'
@@ -778,11 +702,31 @@ else
 	do i = 1,nlist
 		write(10,2001)jlist(i),problist(1,i)
 		probsum = probsum+problist(1,i)
-		
 	end do
 end if
 write(10,*)' Total of HF state = ',probsum
 
+hamsum = 0.d0
+write(10,*)' '
+write(10,*)' Fraction in original HF state: Hamiltonian'
+write(10,*)' '
+if(parityflag)then
+	write(10,*)' J    frac(+)   frac(-)'
+	write(10,*)'-----------------------'
+	do i = 1,nlist
+		write(10,2002)jlist(i),hamlist(1,i),hamlist(2,i)
+		hamsum = hamsum+hamlist(1,i)+hamlist(2,i)
+	end do
+	2002 format(f4.1,2(1X,f10.6))
+else
+	write(10,*)' J    frac'
+	write(10,*)'-----------------------'
+	do i = 1,nlist
+		write(10,2002)jlist(i),hamlist(1,i)
+		hamsum = hamsum+hamlist(1,i)
+	end do
+end if
+write(10,*)' Total of sum of trace(H) = ',hamSum
 
 CLOSE(UNIT = 10)
 
