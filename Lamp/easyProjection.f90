@@ -1,6 +1,6 @@
 ! ///////////////// VERSION CONTROL /////////////////
 !
-! Latest Version 1.1.9
+! Latest Version 1.2.0
 !
 ! note: this document was written with a tab width of 4 spaces
 !
@@ -70,6 +70,10 @@
 !                           - their memoization was not worth it: 12+ gigabytes to save 1 minute!!
 !                         added interface for J_WriteResults
 !                         replaced all tabs with spaces (in easyProjection.f90 & main of hfampPAIRFAST.f90)
+!   1.2.0   08/16/16    : moved J_WriteResults to its own file (J_WriteResults.f90)
+!                           - for clarity and ease of editing
+!                           - removed all decomissioned references to J_WriteResults
+!                         fixed 3 warnings
 ! Todo:
 !   - add title info at first run which includes version number
 !   - add "autoChooser"

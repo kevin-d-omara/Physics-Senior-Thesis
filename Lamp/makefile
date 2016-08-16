@@ -32,6 +32,7 @@ libra.o  \
 hfampFAST.o \
 hfampPAIRFAST.o \
 hfamp_menu.o \
+J_WriteResults.o \
 gaujactest.o \
 gauleg.o  \
 phflib.o \
