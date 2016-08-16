@@ -575,20 +575,17 @@ END SUBROUTINE J_WritePair
 
 SUBROUTINE J_WriteResults(tol,np,nf,jvals,pevals,nlist,jlist,problist,hamlist,parityflag)
 
-USE errortests
+use errortests
+implicit none
 
-IMPLICIT NONE
+real,    intent(in) :: tol
+integer (kind=8), intent(in) :: np, nf
+real    (kind=8), intent(in) :: jvals(np), pevals(2,np)
+integer, intent(in) :: nlist
+real    (kind=8), intent(in) :: jlist(nlist),problist(2,nlist),hamlist(2,nlist)
+logical, intent(in) :: parityflag
 
-real :: tol
-INTEGER (KIND = 8), INTENT(IN) :: nf, np
-REAL (KIND = 8), DIMENSION(np), INTENT(IN) :: jvals
-REAL (KIND = 8), DIMENSION(2,np), INTENT(IN) :: pevals
-integer :: nlist  ! size of list of j's
-real(kind=8) :: problist(2,nlist),hamlist(2,nlist),jlist(nlist)
 real(kind=8) :: probsum,hamSum
-logical :: parityflag
-
-
 INTEGER :: i,iostatus
 CHARACTER (LEN = 1) :: choice
 CHARACTER (LEN = 4) :: shell

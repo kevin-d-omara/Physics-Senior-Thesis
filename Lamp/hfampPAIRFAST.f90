@@ -41,7 +41,7 @@
 
 
 SUBROUTINE Projection_with_Parity(js,np,psd,nsd,tol,ParityTest,alpha_i,beta_j, &
-        gamma_k,N_ijk,H_ijk,PN_ijk,PH_ijk,allOvlpp,allOvlpn,allRhopij,allRhonij,isNorm)
+        gamma_k,N_ijk,H_ijk,PN_ijk,PH_ijk,allOvlpp,allOvlpn,isNorm)
 
 USE phf_vals
 USE system_parameters
@@ -52,46 +52,45 @@ USE errortests
 IMPLICIT NONE
 
 interface
-	  SUBROUTINE Psi_New(alpha,beta,gamma,RotMat)  ! INTERFACE
-      USE system_parameters
-	  USE spstate
-      IMPLICIT NONE
-   	  REAL (KIND = 8), INTENT(IN) :: alpha,beta,gamma
-	  COMPLEX (KIND = 8), DIMENSION(nsps,nsps), INTENT(OUT) :: RotMat
-      end subroutine Psi_New  ! INTERFACE
-	  
+    SUBROUTINE Psi_New(alpha,beta,gamma,RotMat)  ! INTERFACE
+        USE system_parameters
+        USE spstate
+        IMPLICIT NONE
+        REAL (KIND = 8), INTENT(IN) :: alpha,beta,gamma
+        COMPLEX (KIND = 8), DIMENSION(nsps,nsps), INTENT(OUT) :: RotMat
+    end subroutine Psi_New  ! INTERFACE
 
-	  SUBROUTINE Wigner_d2(js,np,alpha,beta,gamma,wignerD)  ! INTERFACE
-	  IMPLICIT NONE
-	  INTEGER, INTENT(IN) :: np
-	  REAL (KIND = 8), INTENT(IN) :: js, alpha,beta,gamma
-	  COMPLEX (KIND = 8), DIMENSION(1:np,1:np), INTENT(OUT) :: wignerD
-      end subroutine Wigner_d2    ! INTERFACE
-	  
-      subroutine makerhoij(it,np,sdf,sdi,ovlp,rhoij)  ! INTERFACE
-      use spstate
-      use system_parameters
-      implicit none
-      integer it
-      integer np
-      complex(kind = 8) :: sdf(nsps,np),sdi(nsps,np)
-      complex(kind = 8) :: rhoij(nsps,nsps)
-      complex(kind = 8) :: ovlp
-      end subroutine makerhoij  ! INTERFACE
 
-	  subroutine geneigsolverdiag(ndim,nparity,ipar,NMat,HMat,tol,posdef,nf,pevals,normvals)  ! INTERFACE
-	  	use errortests
-	  	implicit none	
-	  	integer (kind=4) :: ndim, nparity   ! dimension of matrices
-	    integer ipar
-	  	COMPLEX (KIND = 8):: Hmat(ndim,ndim),NMat(ndim,ndim)   !Input hamiltonian and norm matrices
-	  	LOGICAL, INTENT(INOUT) :: posdef(2)
-	  	REAL :: tol
-	  	INTEGER (KIND = 8), INTENT(OUT) :: nf
-	  	REAL (KIND = 8), INTENT(OUT) :: pevals(nparity,ndim)
-		real (kind=8) :: normvals(nparity,ndim)
-	end subroutine geneigsolverdiag    ! INTERFACE
-		
+    SUBROUTINE Wigner_d2(js,np,alpha,beta,gamma,wignerD)  ! INTERFACE
+        IMPLICIT NONE
+        INTEGER, INTENT(IN) :: np
+        REAL (KIND = 8), INTENT(IN) :: js, alpha,beta,gamma
+        COMPLEX (KIND = 8), DIMENSION(1:np,1:np), INTENT(OUT) :: wignerD
+    end subroutine Wigner_d2    ! INTERFACE
+
+    subroutine makerhoij(it,np,sdf,sdi,ovlp,rhoij)  ! INTERFACE
+        use spstate
+        use system_parameters
+        implicit none
+        integer it
+        integer np
+        complex(kind = 8) :: sdf(nsps,np),sdi(nsps,np)
+        complex(kind = 8) :: rhoij(nsps,nsps)
+        complex(kind = 8) :: ovlp
+    end subroutine makerhoij  ! INTERFACE
+
+    subroutine geneigsolverdiag(ndim,nparity,ipar,NMat,HMat,tol,posdef,nf,pevals,normvals)  ! INTERFACE
+        use errortests
+        implicit none
+        integer (kind=4) :: ndim, nparity   ! dimension of matrices
+        integer ipar
+        COMPLEX (KIND = 8):: Hmat(ndim,ndim),NMat(ndim,ndim)   !Input hamiltonian and norm matrices
+        LOGICAL, INTENT(INOUT) :: posdef(2)
+        REAL :: tol
+        INTEGER (KIND = 8), INTENT(OUT) :: nf
+        REAL (KIND = 8), INTENT(OUT) :: pevals(nparity,ndim)
+        real (kind=8) :: normvals(nparity,ndim)
+    end subroutine geneigsolverdiag    ! INTERFACE
 end interface
 
 INTEGER (KIND = 8), INTENT(IN) :: np
@@ -142,9 +141,8 @@ REAL (KIND = 8), ALLOCATABLE :: parOP(:), pairMat(:,:)
 real (kind=8) :: projfactor   ! (2j+1)/8pi^2, in order to correctly project out
 
 real (kind=8), allocatable, intent(in) :: alpha_i(:), gamma_k(:), beta_j(:)
-complex (kind = 8), allocatable, intent(inout)	:: N_ijk(:,:,:), H_ijk(:,:,:), PN_ijk(:,:,:), PH_ijk(:,:,:)
+complex (kind = 8), allocatable, intent(inout) :: N_ijk(:,:,:), H_ijk(:,:,:), PN_ijk(:,:,:), PH_ijk(:,:,:)
 complex (kind = 8), allocatable, intent(inout) :: allOvlpp(:,:,:,:), allOvlpn(:,:,:,:)
-complex (kind = 8), allocatable, intent(inout) :: allRhopij(:,:,:,:,:,:), allRhonij(:,:,:,:,:,:)
 logical, intent(in) :: isNorm
 
 npts = int(2.d0*js)+1 !2*Jmax+1
@@ -222,80 +220,61 @@ hmp = js
 
 pairMat = 0.0d0
 DO i = 1, nsps
-	pairMat(i,i) = parOP(i)
+    pairMat(i,i) = parOP(i)
 END DO
 
 ! ///////////////// CALCULATE N_ijk & H_ijk  /////////////////
-if (isNorm) then ! N_ijk
-    sditi = 1
-    sditj = 1
-    DO alp = 1, int(2.d0*js)+1 !np = bigJmax
-	    DO bet = 1, int(js)+1
-		    DO gam = 1, int(2.d0*js)+1
+sditi = 1
+sditj = 1
+DO alp = 1, int(2.d0*js)+1 !np = bigJmax
+    DO bet = 1, int(js)+1
+        DO gam = 1, int(2.d0*js)+1
 
-			    CALL Psi_New(alpha_i(alp),beta_j(bet),gamma_k(gam),RotMat)
+            CALL Psi_New(alpha_i(alp),beta_j(bet),gamma_k(gam),RotMat)
 
-			    !	Modified for strictly Gauss-Legendre quadrature
-			    !Using generated R matrix, Rotate the neutron and proton slater determinants  
-			    psdr = MATMUL(RotMat,psd(sditj,:,:))
-			    nsdr = MATMUL(RotMat,nsd(sditj,:,:))
+            !Modified for strictly Gauss-Legendre quadrature
+            !Using generated R matrix, Rotate the neutron and proton slater determinants  
+            psdr = MATMUL(RotMat,psd(sditj,:,:))
+            nsdr = MATMUL(RotMat,nsd(sditj,:,:))
 
-			    ! Generate neutron and proton overlaps (ovlp*) as well as the density matrices (rho*ij)
-			    CALL makerhoij(1,numprot,psdr,psd(sditi,:,:),ovlpp,rhopij)
-			    CALL makerhoij(2,numneut,nsdr,nsd(sditi,:,:),ovlpn,rhonij)
+            ! Generate neutron and proton overlaps (ovlp*) as well as the density matrices (rho*ij)
+            CALL makerhoij(1,numprot,psdr,psd(sditi,:,:),ovlpp,rhopij)
+            CALL makerhoij(2,numneut,nsdr,nsd(sditi,:,:),ovlpn,rhonij)
 
-			    N_ijk(alp,bet,gam) = ovlpp*ovlpn
+            N_ijk(alp,bet,gam) = ovlpp*ovlpn
 
-                allOvlpp(1,alp,bet,gam) = ovlpp
-                allOvlpn(1,alp,bet,gam) = ovlpn
-                allRhopij(1,alp,bet,gam,:,:) = rhopij
-                allRhonij(1,alp,bet,gam,:,:) = rhonij
+            allOvlpp(1,alp,bet,gam) = ovlpp
+            allOvlpn(1,alp,bet,gam) = ovlpn
 
-			    psdr = psd(sditj,:,:)
-			    nsdr = nsd(sditj,:,:)
+            psdr = psd(sditj,:,:)
+            nsdr = nsd(sditj,:,:)
+            IF (.NOT. isNorm) THEN
+                CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
+                H_ijk(alp,bet,gam) = vme
+            END IF
 
-			    IF (ParityTest) THEN
-				    psdr = MATMUL(RotMat,psdr)
-				    nsdr = MATMUL(RotMat,nsdr)
+            IF (ParityTest) THEN
+                psdr = MATMUL(RotMat,psdr)
+                nsdr = MATMUL(RotMat,nsdr)
 
-				    psdr = MATMUL(pairMat,psdr)
-				    nsdr = MATMUL(pairMat,nsdr)
+                psdr = MATMUL(pairMat,psdr)
+                nsdr = MATMUL(pairMat,nsdr)
 
-				    CALL makerhoij(1,numprot,psdr,psd(sditi,:,:),ovlpp,rhopij)
-				    CALL makerhoij(2,numneut,nsdr,nsd(sditi,:,:),ovlpn,rhonij)
+                CALL makerhoij(1,numprot,psdr,psd(sditi,:,:),ovlpp,rhopij)
+                CALL makerhoij(2,numneut,nsdr,nsd(sditi,:,:),ovlpn,rhonij)
 
-				    PN_ijk(alp,bet,gam) = ovlpp*ovlpn
+                PN_ijk(alp,bet,gam) = ovlpp*ovlpn
 
-                    allOvlpp(2,alp,bet,gam) = ovlpp
-                    allOvlpn(2,alp,bet,gam) = ovlpn
-                    allRhopij(2,alp,bet,gam,:,:) = rhopij
-                    allRhonij(2,alp,bet,gam,:,:) = rhonij
-               END IF
-		    END DO
-	    END DO
+                allOvlpp(2,alp,bet,gam) = ovlpp
+                allOvlpn(2,alp,bet,gam) = ovlpn
+                IF (.NOT. isNorm) THEN
+                    CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
+                    PH_ijk(alp,bet,gam) = vme
+                END IF
+           END IF
+        END DO
     END DO
-else ! H_ijk
-    sditi = 1
-    sditj = 1
-    DO alp = 1, int(2.d0*js)+1
-	    DO bet = 1, int(js + 1.d0)
-		    DO gam = 1, int(2.d0*js)+1
-			    !Generate <H> = vme for each step in the integration
-!			    CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
-			    CALL TBMEmaster(nsps,allRhopij(1,alp,bet,gam,:,:),allRhonij(1,alp,bet,gam,:,:), &
-                                                allOvlpp(1,alp,bet,gam),allOvlpn(1,alp,bet,gam),vme)
-			    H_ijk(alp,bet,gam) = vme
-
-			    IF (ParityTest) THEN
-!				    CALL TBMEmaster(nsps,rhopij,rhonij,ovlpp,ovlpn,vme)
-				    CALL TBMEmaster(nsps,allRhopij(2,alp,bet,gam,:,:),allRhonij(2,alp,bet,gam,:,:), &
-                                                    allOvlpp(2,alp,bet,gam),allOvlpn(2,alp,bet,gam),vme)
-				    PH_ijk(alp,bet,gam) = vme
-               END IF
-		    END DO
-	    END DO
-    END DO
-end if
+END DO
 
 END SUBROUTINE Projection_with_Parity
 
