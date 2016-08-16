@@ -134,7 +134,10 @@ CU    USES pythag
 12      continue
         m=n
 2       if(m.ne.l)then
-          if(iter.eq.30)pause 'too many iterations in tqli'
+          if(iter.eq.30)then
+            write(*,*) 'too many iterations in tqli'
+            read(*,*)  !pause until user hits enter
+          end if
           iter=iter+1
           g=(d(l+1)-d(l))/(2.*e(l))
           r=pythag(g,1.)

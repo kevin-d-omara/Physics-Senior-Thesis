@@ -91,7 +91,8 @@ REAL (KIND = 8) :: a,b,c,p1,p2,p3,pp,temp,z,z1
           z=z1-p1/pp
           if(dabs(z-z1)<=EPS)goto 1
 12      continue
-        pause 'too many iterations in gaujac'
+        write(*,*) 'too many iterations in gaujac'
+        read(*,*)  !pause until user hits enter
 1       x(i)=z
         w(i)=dexp(gammln(alf+DBLE(n))+gammln(bet+DBLE(n))-gammln(DBLE(n)+1.0d0)-gammln(DBLE(n)+alfbet+1.))&
         		*temp*2.0d0**alfbet/(pp*p2)
