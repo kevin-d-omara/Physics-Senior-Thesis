@@ -153,7 +153,7 @@ Hprime = CMPLX(0.0d0,0.0d0)
 
                     !  NOTE:  CURRENTLY SET FOR GAUSS-LEGENDRE QUADRATURE (SQUARE GRID) 
 
-		          CALL Wigner_d2(js,np,xleg(alp),xlegb(bet),xleg(gam),IntWig)
+		          CALL Wigner_d2(js,int(np,kind=4),xleg(alp),xlegb(bet),xleg(gam),IntWig)
                     ! Generate block diagonal matrix, use it to rotate slater dets.
                     ! and generate rho function
                     CALL Psi_New(xleg(alp),xlegb(bet),xleg(gam),RotMat)
