@@ -226,6 +226,12 @@ END DO
 ! ///////////////// CALCULATE N_ijk & H_ijk  /////////////////
 sditi = 1
 sditj = 1
+
+!!$OMP parallel do private(alp,bet,gam,psdr,nsdr,ovlpp,ovlpn,rhopij,rhonij,vme,RotMat)
+!
+!  NOTE: this will be more efficient if we "unroll" the three alp, bet,gam loops into one long loop
+!        for future work
+
 DO alp = 1, int(2.d0*js)+1 !np = bigJmax
     DO bet = 1, int(js)+1
         DO gam = 1, int(2.d0*js)+1
@@ -275,6 +281,7 @@ DO alp = 1, int(2.d0*js)+1 !np = bigJmax
         END DO
     END DO
 END DO
+!!$OMP end parallel do
 
 END SUBROUTINE Projection_with_Parity
 

@@ -1,8 +1,8 @@
 #CFLAGS   = -O2 -w
 #CFLAGS	 = -O2  # -g -fbounds-check -fbacktrace
 #CFLAGS = -g -fbounds-check -Wall -fbacktrace -finit-real=nan
-CFLAGS = -O2 #   -openmp
-LFLAGS   = #-openmp
+CFLAGS = -O2    -fopenmp
+LFLAGS   = -fopenmp
 DPLIBS   =
 COMPILER77 = gfortran
 COMPILER90 = gfortran

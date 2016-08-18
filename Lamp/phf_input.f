@@ -62,7 +62,7 @@ C-------------- READ PAST TITLE CARDS ---------------------------
       do while(.not.success)
         read(1,'(a)')achar
         backspace(1)
-        if(achar /= '#' )then
+        if(achar /= '#'  .and. achar/='!')then
            success = .true.
         else
            read(1,'(a)')title
@@ -329,7 +329,7 @@ C-------------- READ PAST TITLE CARDS ---------------------------
       do while(.not.success)
         read(1,'(a)')achar
         backspace(1)
-        if(achar /= '#' )then
+        if(achar /= '#'  .and. achar /='!')then
            success = .true.
         else
            read(1,'(a)')title

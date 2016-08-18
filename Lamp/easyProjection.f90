@@ -1,7 +1,5 @@
 ! ///////////////// VERSION CONTROL /////////////////
 !
-! Latest Version 1.2.0
-!
 ! note: this document was written with a tab width of 4 spaces
 !
 !    Changelog
@@ -74,6 +72,7 @@
 !                           - for clarity and ease of editing
 !                           - removed all decomissioned references to J_WriteResults
 !                         fixed 3 warnings
+!   1.2.1   08/18/16    : Calvin added OpenMP support
 ! Todo:
 !   - add title info at first run which includes version number
 !   - add "autoChooser"
@@ -128,7 +127,7 @@
 !
 ! 'Easy' projection of angular momentum
 !
-!    Dr. Calvin Johnson
+!    Calvin Johnson
 !    Kevin O'Mara
 !
 !****************************************************
@@ -405,10 +404,25 @@ subroutine J_Main
     ! trace
     complex (kind=8), allocatable :: normTrace(:), PnormTrace(:), hamTrace(:), PhamTrace(:)
     complex (kind = 8) :: normSum, hamSum
+	
+	integer :: num_threads,mythread
+	integer :: omp_get_thread_num,omp_get_num_threads
 
 ! ##################################################################################################
 
-    !initialize
+
+print*,'  WELCOME to LAMP '
+print*,'  Version 1.2.1, August 2016 '
+print*,"  Authors: C Johnson and K O'Mara "
+print*,'  '
+!$omp parallel shared(num_threads)
+	   num_threads = omp_get_num_threads()
+	   mythread = omp_get_thread_num()
+	   if ( mythread == 0 ) write(6,*) 'NUM_THREADS = ', num_threads
+
+!$omp end parallel
+	
+	
     call testset
     call allocateSlaterDet(psd,nsd,psdf,nsdf,ParityTest)
     call PairLog(ParityTest)
